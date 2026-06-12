@@ -427,60 +427,76 @@ html, body {
 
 <script>
 // ═══════════════════════════════════════════════
-// GTFS-RT PROTOBUF SCHEMA (subset necessario)
+// GTFS-RT SCHEMA come JSON (evita problemi proto2)
 // ═══════════════════════════════════════════════
-const PROTO = `
-syntax = "proto2";
-package transit_realtime;
-
-message FeedMessage {
-  required FeedHeader header = 1;
-  repeated FeedEntity entity = 2;
-}
-message FeedHeader {
-  required string gtfs_realtime_version = 1;
-  optional uint64 timestamp = 3;
-}
-message FeedEntity {
-  required string id = 1;
-  optional bool is_deleted = 2;
-  optional TripUpdate trip_update = 5;
-}
-message TripUpdate {
-  message StopTimeEvent {
-    optional int32 delay = 1;
-    optional int64 time = 2;
-    optional float uncertainty = 3;
-  }
-  message StopTimeUpdate {
-    optional uint32 stop_sequence = 1;
-    optional string stop_id = 4;
-    optional StopTimeEvent arrival = 2;
-    optional StopTimeEvent departure = 3;
-    enum ScheduleRelationship {
-      SCHEDULED = 0;
-      SKIPPED = 1;
-      NO_DATA = 2;
+const PROTO_JSON = {
+  nested: {
+    transit_realtime: {
+      nested: {
+        FeedMessage: {
+          fields: {
+            header: { rule: "required", type: "FeedHeader", id: 1 },
+            entity: { rule: "repeated", type: "FeedEntity", id: 2 }
+          }
+        },
+        FeedHeader: {
+          fields: {
+            gtfsRealtimeVersion: { rule: "required", type: "string", id: 1 },
+            timestamp: { type: "uint64", id: 3 }
+          }
+        },
+        FeedEntity: {
+          fields: {
+            id: { rule: "required", type: "string", id: 1 },
+            isDeleted: { type: "bool", id: 2 },
+            tripUpdate: { type: "TripUpdate", id: 5 }
+          }
+        },
+        TripUpdate: {
+          fields: {
+            trip:           { rule: "required", type: "TripDescriptor", id: 1 },
+            stopTimeUpdate: { rule: "repeated", type: "TripUpdate.StopTimeUpdate", id: 2 },
+            vehicle:        { type: "VehicleDescriptor", id: 3 },
+            timestamp:      { type: "uint64", id: 4 }
+          },
+          nested: {
+            StopTimeEvent: {
+              fields: {
+                delay:       { type: "int32", id: 1 },
+                time:        { type: "int64", id: 2 },
+                uncertainty: { type: "float", id: 3 }
+              }
+            },
+            StopTimeUpdate: {
+              fields: {
+                stopSequence:         { type: "uint32", id: 1 },
+                arrival:              { type: "TripUpdate.StopTimeEvent", id: 2 },
+                departure:            { type: "TripUpdate.StopTimeEvent", id: 3 },
+                stopId:               { type: "string", id: 4 },
+                scheduleRelationship: { type: "uint32", id: 5 }
+              }
+            }
+          }
+        },
+        TripDescriptor: {
+          fields: {
+            tripId:    { type: "string", id: 1 },
+            startTime: { type: "string", id: 2 },
+            startDate: { type: "string", id: 3 },
+            routeId:   { type: "string", id: 5 }
+          }
+        },
+        VehicleDescriptor: {
+          fields: {
+            id:           { type: "string", id: 1 },
+            label:        { type: "string", id: 2 },
+            licensePlate: { type: "string", id: 3 }
+          }
+        }
+      }
     }
-    optional ScheduleRelationship schedule_relationship = 5;
   }
-  required TripDescriptor trip = 1;
-  repeated StopTimeUpdate stop_time_update = 2;
-  optional VehicleDescriptor vehicle = 3;
-  optional uint64 timestamp = 4;
-}
-message TripDescriptor {
-  optional string trip_id = 1;
-  optional string route_id = 5;
-  optional string start_time = 2;
-  optional string start_date = 3;
-}
-message VehicleDescriptor {
-  optional string id = 1;
-  optional string label = 2;
-  optional string license_plate = 3;
-}
-`;
+};
 
 // ═══════════════════════════════════════════════
 // CONFIG
@@ -511,8 +527,7 @@ let dlgStopId = null;
 // ═══════════════════════════════════════════════
 async function getProto() {
   if (protoRoot) return protoRoot;
-  const parsed = protobuf.parse(PROTO);
-  protoRoot = parsed.root;
+  protoRoot = protobuf.Root.fromJSON(PROTO_JSON);
   return protoRoot;
 }
 
