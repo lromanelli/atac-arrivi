@@ -76,11 +76,16 @@ def main():
 
         print(f"Trip attivi: {len(trip_info)}")
 
-        # ── 4. Stop names ─────────────────────────────────────────────────
+        # ── 4. Stop names + coords ────────────────────────────────────────
         stop_name: dict[str, str] = {}
+        stop_coords: dict[str, tuple] = {}
         with z.open('stops.txt') as f:
             for row in csv.DictReader(io.TextIOWrapper(f, 'utf-8-sig')):
                 stop_name[row['stop_id']] = row.get('stop_name', '')
+                try:
+                    stop_coords[row['stop_id']] = (float(row['stop_lat']), float(row['stop_lon']))
+                except (ValueError, KeyError):
+                    pass
 
         print(f"Fermate nel GTFS: {len(stop_name)}")
 
@@ -122,6 +127,10 @@ def main():
             'name': stop_name.get(sid, ''),
             'deps': [[r, t, h, tid] for (_, r, t, h, tid) in deps]
         }
+        coords = stop_coords.get(sid)
+        if coords:
+            out['lat'] = round(coords[0], 6)
+            out['lon'] = round(coords[1], 6)
         with open(f'data/stops/{sid}.json', 'w', encoding='utf-8') as fp:
             json.dump(out, fp, ensure_ascii=False, separators=(',', ':'))
 
