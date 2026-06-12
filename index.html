@@ -577,9 +577,19 @@ async function sampleStopIds(prefix) {
     }
     if (ids.size > 2000) break;
   }
+  // Campione raw del primo StopTimeUpdate
+  let rawStu = null;
+  let stuCount = 0;
+  for (const ent of (msg.entity || [])) {
+    const tu = ent.tripUpdate;
+    if (!tu || !tu.stopTimeUpdate || !tu.stopTimeUpdate.length) continue;
+    stuCount += tu.stopTimeUpdate.length;
+    if (!rawStu) rawStu = JSON.stringify(tu.stopTimeUpdate[0]);
+  }
+
   const p = prefix.substring(0, 3);
   const matching = [...ids].filter(id => id.startsWith(p)).slice(0, 10);
-  return { matching, total: ids.size, entities, bufSize: buf.byteLength, sample: firstIds };
+  return { matching, total: ids.size, entities, bufSize: buf.byteLength, sample: firstIds, stuCount, rawStu };
 }
 
 async function getArrivals(stopId, force) {
@@ -801,11 +811,10 @@ async function searchStop() {
     if (arrivals.length === 0) {
       const { matching, total, entities, bufSize, sample } = await sampleStopIds(stopId);
       debugHtml = `<div class="info-box" style="margin:12px 14px;font-size:11px">
-        🔍 <strong>Debug:</strong> buffer ${bufSize} byte · ${entities} trip nel feed · ${total} stop unici<br><br>
-        ${total === 0 ? `⚠️ <strong>Il feed è vuoto o corrotto.</strong> Proxy usato: ${lastWorkingProxy || '?'}<br>
-        Primi byte: ${feedBuf ? Array.from(new Uint8Array(feedBuf).slice(0,6)).map(b=>b.toString(16).padStart(2,'0')).join(' ') : 'n/d'}` :
-        `Codici simili a "<strong>${esc(stopId)}</strong>": ${matching.length ? matching.map(id => `<code style="background:#eee;padding:1px 4px;border-radius:3px">${esc(id)}</code>`).join(' ') : '<em>nessuno</em>'}<br>
-        Esempi dal feed: ${sample.map(id => `<code style="background:#eee;padding:1px 4px;border-radius:3px">${esc(id)}</code>`).join(' ')}`}
+        🔍 <strong>Debug:</strong> ${bufSize} byte · ${entities} trip · ${stuCount} stop_time_update · ${total} stop_id unici<br><br>
+        ${matching.length ? `Codici simili a "<strong>${esc(stopId)}</strong>": ${matching.map(id=>`<code style="background:#eee;padding:1px 4px;border-radius:3px">${esc(id)}</code>`).join(' ')}` : `<em>Nessun codice simile trovato.</em>`}
+        ${sample.length ? `<br>Esempi dal feed: ${sample.map(id=>`<code style="background:#eee;padding:1px 4px;border-radius:3px">${esc(id)}</code>`).join(' ')}` : ''}
+        ${rawStu ? `<br><br>Primo StopTimeUpdate raw:<br><code style="word-break:break-all;background:#f5f5f5;display:block;padding:6px;border-radius:4px;font-size:10px">${esc(rawStu)}</code>` : `<br>⚠️ Nessuno StopTimeUpdate trovato nei trip.`}
       </div>`;
     }
 
