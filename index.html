@@ -426,9 +426,9 @@ html, body {
 <div class="toast" id="toast"></div>
 
 <script>
-// ═══════════════════════════════════════════════
-// GTFS-RT SCHEMA come JSON (evita problemi proto2)
-// ═══════════════════════════════════════════════
+// ══════════════════════════════════════════════
+// SCHEMA GTFS-RT (JSON, evita bug forward ref)
+// ══════════════════════════════════════════════
 const PROTO_JSON = {
   nested: {
     transit_realtime: {
@@ -569,46 +569,6 @@ let lastWorkingProxy = null;
 // ═══════════════════════════════════════════════
 // PARSE ARRIVALS FOR STOP
 // ═══════════════════════════════════════════════
-// Raccoglie un campione di stop IDs dal feed (per debug)
-async function sampleStopIds(prefix) {
-  const root = await getProto();
-  const buf = feedBuf;
-  if (!buf) return { matching: [], total: 0, entities: 0, bufSize: 0, sample: [] };
-  const FM = root.lookupType('transit_realtime.FeedMessage');
-  const msg = FM.decode(new Uint8Array(buf));
-  const entities = (msg.entity || []).length;
-  const ids = new Set();
-  // Campione dei primi 10 stop IDs trovati
-  const firstIds = [];
-  for (const ent of (msg.entity || [])) {
-    const tu = ent.tripUpdate;
-    if (!tu) continue;
-    for (const stu of (tu.stopTimeUpdate || [])) {
-      if (stu.stopId) {
-        ids.add(stu.stopId);
-        if (firstIds.length < 5) firstIds.push(stu.stopId);
-      }
-      if (ids.size > 2000) break;
-    }
-    if (ids.size > 2000) break;
-  }
-  // Campione raw del primo StopTimeUpdate + raw TripUpdate
-  let rawStu = null;
-  let rawTu = null;
-  let stuCount = 0;
-  for (const ent of (msg.entity || [])) {
-    const tu = ent.tripUpdate;
-    if (!tu) continue;
-    if (!rawTu) rawTu = JSON.stringify(tu).substring(0, 600);
-    if (!tu.stopTimeUpdate || !tu.stopTimeUpdate.length) continue;
-    stuCount += tu.stopTimeUpdate.length;
-    if (!rawStu) rawStu = JSON.stringify(tu.stopTimeUpdate[0]);
-  }
-
-  const p = prefix.substring(0, 3);
-  const matching = [...ids].filter(id => id.startsWith(p)).slice(0, 10);
-  return { matching, total: ids.size, entities, bufSize: buf.byteLength, sample: firstIds, stuCount, rawStu };
-}
 
 async function getArrivals(stopId, force) {
   const [root, buf] = await Promise.all([getProto(), getFeed(force)]);
@@ -825,18 +785,6 @@ async function searchStop() {
     const name = getFavName(stopId) || `Fermata ${stopId}`;
     const saved = isFav(stopId);
 
-    let debugHtml = '';
-    if (arrivals.length === 0) {
-      const { matching, total, entities, bufSize, sample, stuCount, rawStu } = await sampleStopIds(stopId);
-      debugHtml = `<div class="info-box" style="margin:12px 14px;font-size:11px">
-        🔍 <strong>Debug:</strong> ${bufSize} byte · ${entities} trip · ${stuCount} stop_time_update · ${total} stop_id unici<br><br>
-        ${matching.length ? `Codici simili a "<strong>${esc(stopId)}</strong>": ${matching.map(id=>`<code style="background:#eee;padding:1px 4px;border-radius:3px">${esc(id)}</code>`).join(' ')}` : `<em>Nessun codice simile trovato.</em>`}
-        ${sample.length ? `<br>Esempi dal feed: ${sample.map(id=>`<code style="background:#eee;padding:1px 4px;border-radius:3px">${esc(id)}</code>`).join(' ')}` : ''}
-        ${rawTu ? `<br><br>Primo TripUpdate raw:<br><code style="word-break:break-all;background:#f5f5f5;display:block;padding:6px;border-radius:4px;font-size:10px">${esc(rawTu)}</code>` : ''}
-        ${rawStu ? `<br><br>Primo StopTimeUpdate:<br><code style="word-break:break-all;background:#f5f5f5;display:block;padding:6px;border-radius:4px;font-size:10px">${esc(rawStu)}</code>` : `<br>⚠️ Nessuno StopTimeUpdate trovato nei trip.`}
-      </div>`;
-    }
-
     const arrHtml = `<div class="arr-list">${renderArrivalsHtml(arrivals)}</div>`;
 
     out.innerHTML = `
@@ -856,7 +804,6 @@ async function searchStop() {
           </button>
         </div>
       </div>
-      ${debugHtml}
       ${arrHtml}
     </div>`;
 
