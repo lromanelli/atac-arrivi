@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#cc1100">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ATAC Arrivi">
+<title>ATAC Arrivi</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/protobufjs/7.2.5/protobuf.min.js"></script>
+<style>
+:root {
+  --red: #cc1100;
+  --red-dark: #991000;
+  --orange: #e85d04;
+  --bg: #f0f0f2;
+  --card: #fff;
+  --text: #111;
+  --muted: #666;
+  --border: #e2e2e2;
+  --gps-bg: #e6f7ee;
+  --gps-color: #1a8a42;
+  --sched-bg: #e3f0fd;
+  --sched-color: #1255a3;
+  --imminent: #cc1100;
+  --soon: #d96000;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100%;
+  overflow-x: hidden;
+}
+
+/* ─── HEADER ─── */
+.hdr {
+  background: var(--red);
+  color: #fff;
+  padding: 14px 16px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+.hdr-icon { width: 32px; height: 32px; flex-shrink: 0; }
+.hdr-text h1 { font-size: 19px; font-weight: 800; letter-spacing: -.4px; }
+.hdr-text p  { font-size: 11px; opacity: .8; margin-top: 1px; }
+
+/* ─── BOTTOM NAV ─── */
+.bnav {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  background: #fff;
+  border-top: 1px solid var(--border);
+  display: flex;
+  z-index: 100;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+.bnav-btn {
+  flex: 1; border: none; background: none;
+  padding: 10px 4px 8px;
+  display: flex; flex-direction: column;
+  align-items: center; gap: 3px;
+  font-size: 11px; color: #999;
+  cursor: pointer; font-weight: 600;
+}
+.bnav-btn svg { width: 24px; height: 24px; }
+.bnav-btn.on { color: var(--red); }
+
+/* ─── PAGES ─── */
+.content { padding: 12px 12px 88px; }
+.page { display: none; }
+.page.on { display: block; }
+
+/* ─── SECTION HEADER ─── */
+.sec-hdr {
+  display: flex; align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 10px;
+}
+.sec-title { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+.txt-btn { background: none; border: none; color: var(--red); font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+
+/* ─── STOP CARD ─── */
+.stop-card {
+  background: var(--card); border-radius: 14px;
+  margin-bottom: 10px; overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,.08);
+  cursor: pointer;
+  transition: transform .12s;
+}
+.stop-card:active { transform: scale(.98); }
+
+.stop-card-row {
+  padding: 13px 14px;
+  display: flex; align-items: center; gap: 11px;
+}
+.stop-num {
+  background: var(--red); color: #fff;
+  border-radius: 8px; padding: 6px 9px;
+  font-size: 13px; font-weight: 800;
+  min-width: 56px; text-align: center;
+  flex-shrink: 0; letter-spacing: -.2px;
+}
+.stop-meta { flex: 1; min-width: 0; }
+.stop-meta h3 { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stop-meta p  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.stop-btns { display: flex; gap: 4px; flex-shrink: 0; }
+
+.ico-btn {
+  width: 36px; height: 36px; border: none;
+  background: #f5f5f5; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; color: var(--muted);
+  transition: background .15s;
+}
+.ico-btn:active { background: #e8e8e8; }
+.ico-btn svg { width: 18px; height: 18px; }
+.ico-btn.del svg { color: var(--red); }
+
+/* ─── ARRIVAL ROWS ─── */
+.arr-list { border-top: 1px solid var(--border); }
+
+.arr-row {
+  padding: 10px 14px;
+  display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid #f4f4f4;
+}
+.route-badge {
+  background: var(--orange); color: #fff;
+  border-radius: 7px; padding: 5px 8px;
+  font-size: 14px; font-weight: 800;
+  min-width: 50px; text-align: center;
+  flex-shrink: 0; letter-spacing: -.3px;
+}
+.arr-mid { flex: 1; min-width: 0; }
+.arr-line { font-size: 13px; color: var(--text); font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.arr-tags { margin-top: 3px; display: flex; gap: 4px; align-items: center; }
+.tag {
+  font-size: 10px; font-weight: 700;
+  padding: 2px 5px; border-radius: 4px; letter-spacing: .2px;
+}
+.tag-gps   { background: var(--gps-bg);  color: var(--gps-color); }
+.tag-sched { background: var(--sched-bg); color: var(--sched-color); }
+.tag-delay { font-size: 10px; color: var(--muted); }
+
+.arr-time { text-align: right; flex-shrink: 0; }
+.arr-mins {
+  font-size: 22px; font-weight: 800; color: var(--text); line-height: 1;
+}
+.arr-mins.now   { color: var(--imminent); }
+.arr-mins.soon  { color: var(--soon); }
+.arr-clock { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.arr-min-label { font-size: 10px; color: var(--muted); }
+
+/* ─── SEARCH PAGE ─── */
+.search-card {
+  background: var(--card); border-radius: 14px;
+  padding: 16px; margin-bottom: 16px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.08);
+}
+.search-card label {
+  display: block; font-size: 13px; font-weight: 600;
+  color: var(--muted); margin-bottom: 8px;
+}
+.search-row { display: flex; gap: 8px; }
+.search-row input {
+  flex: 1; padding: 12px 14px;
+  border: 2px solid var(--border); border-radius: 10px;
+  font-size: 17px; font-weight: 700; outline: none;
+  transition: border-color .2s; color: var(--text);
+  font-family: inherit;
+}
+.search-row input:focus { border-color: var(--red); }
+.btn-primary {
+  background: var(--red); color: #fff;
+  border: none; padding: 12px 18px;
+  border-radius: 10px; font-size: 15px;
+  font-weight: 700; cursor: pointer;
+  font-family: inherit; white-space: nowrap;
+}
+.btn-primary:active { background: var(--red-dark); }
+
+.search-hint {
+  font-size: 12px; color: var(--muted);
+  margin-top: 8px; line-height: 1.5;
+}
+
+/* ─── STATES ─── */
+.empty {
+  text-align: center; padding: 52px 24px;
+  color: var(--muted);
+}
+.empty svg { width: 60px; height: 60px; fill: #ddd; margin-bottom: 16px; }
+.empty h3 { font-size: 17px; color: var(--text); margin-bottom: 6px; }
+.empty p  { font-size: 13px; line-height: 1.5; }
+
+.loading {
+  text-align: center; padding: 32px 16px; color: var(--muted);
+}
+.spinner {
+  width: 36px; height: 36px;
+  border: 3px solid #eee; border-top-color: var(--red);
+  border-radius: 50%; animation: spin .75s linear infinite;
+  margin: 0 auto 12px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.err-box {
+  background: #fff3f0; border: 1px solid #ffc0b0;
+  border-radius: 12px; padding: 16px;
+  color: #c01000; font-size: 13px; line-height: 1.5;
+  text-align: center;
+}
+
+.no-arr {
+  padding: 20px; text-align: center;
+  color: var(--muted); font-size: 13px;
+}
+
+.last-upd {
+  text-align: center; font-size: 11px; color: #bbb;
+  padding: 10px 0 4px;
+}
+
+/* ─── BOTTOM SHEET ─── */
+.overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,.45); z-index: 200;
+  align-items: flex-end;
+}
+.overlay.on { display: flex; }
+
+.sheet {
+  background: #fff;
+  border-radius: 20px 20px 0 0;
+  width: 100%; max-height: 88vh;
+  display: flex; flex-direction: column;
+  animation: slideUp .25s ease;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+@keyframes slideUp { from { transform: translateY(100%); } }
+
+.sheet-handle {
+  width: 36px; height: 4px; background: #ddd;
+  border-radius: 2px; margin: 10px auto 0;
+  flex-shrink: 0;
+}
+.sheet-hdr {
+  padding: 10px 16px 14px; border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.sheet-name { font-size: 18px; font-weight: 800; }
+.sheet-code { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+.sheet-body { overflow-y: auto; flex: 1; }
+
+.sheet-foot {
+  padding: 12px 16px; border-top: 1px solid var(--border);
+  display: flex; gap: 8px; flex-shrink: 0;
+}
+.btn-sec {
+  flex: 1; padding: 12px; border: 2px solid var(--border);
+  background: #fff; border-radius: 10px;
+  font-size: 14px; font-weight: 700;
+  cursor: pointer; font-family: inherit; color: var(--text);
+}
+.btn-save {
+  flex: 1.5; padding: 12px; border: none;
+  background: var(--red); border-radius: 10px;
+  font-size: 14px; font-weight: 700;
+  cursor: pointer; font-family: inherit; color: #fff;
+}
+.btn-save.saved { background: #555; }
+
+/* ─── RENAME DIALOG ─── */
+.dialog-bg {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,.45); z-index: 300;
+  align-items: center; justify-content: center;
+  padding: 24px;
+}
+.dialog-bg.on { display: flex; }
+.dialog {
+  background: #fff; border-radius: 16px;
+  padding: 22px; width: 100%; max-width: 320px;
+}
+.dialog h3 { font-size: 16px; font-weight: 800; margin-bottom: 14px; }
+.dialog input {
+  width: 100%; padding: 12px 14px;
+  border: 2px solid var(--border); border-radius: 10px;
+  font-size: 16px; outline: none;
+  font-family: inherit; margin-bottom: 14px;
+}
+.dialog input:focus { border-color: var(--red); }
+.dialog-btns { display: flex; gap: 8px; }
+
+/* ─── TOAST ─── */
+.toast {
+  position: fixed; bottom: 88px; left: 50%;
+  transform: translateX(-50%);
+  background: rgba(20,20,20,.92); color: #fff;
+  padding: 10px 18px; border-radius: 20px;
+  font-size: 13px; font-weight: 600;
+  z-index: 400; opacity: 0; pointer-events: none;
+  transition: opacity .25s; white-space: nowrap;
+}
+.toast.on { opacity: 1; }
+
+/* ─── INFO BOX ─── */
+.info-box {
+  background: #fffbea; border: 1px solid #ffe08a;
+  border-radius: 10px; padding: 10px 12px;
+  font-size: 12px; color: #7a5c00; margin-bottom: 14px;
+  line-height: 1.5;
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="hdr">
+  <svg class="hdr-icon" viewBox="0 0 32 32" fill="none">
+    <rect width="32" height="32" rx="8" fill="rgba(255,255,255,.18)"/>
+    <path d="M8 22c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-8l-3-7H11l-3 7v8zm2-7h12v5H10v-5z" fill="white"/>
+    <circle cx="12" cy="21" r="1.5" fill="#cc1100"/>
+    <circle cx="20" cy="21" r="1.5" fill="#cc1100"/>
+  </svg>
+  <div class="hdr-text">
+    <h1>ATAC Arrivi</h1>
+    <p>Trasporto pubblico Roma · romamobilita.it</p>
+  </div>
+</div>
+
+<!-- CONTENT -->
+<div class="content">
+
+  <!-- PAGE: PREFERITE -->
+  <div class="page on" id="pg-fav">
+    <div class="sec-hdr">
+      <span class="sec-title">Le mie fermate</span>
+      <button class="txt-btn" id="refresh-all-btn" onclick="refreshAll()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+        </svg>
+        Aggiorna
+      </button>
+    </div>
+    <div id="fav-list"></div>
+  </div>
+
+  <!-- PAGE: CERCA -->
+  <div class="page" id="pg-search">
+    <div class="search-card">
+      <label>Codice fermata (indicato sul palo dell'autobus)</label>
+      <div class="search-row">
+        <input type="text" id="stop-input" placeholder="es. 72004"
+          inputmode="numeric" maxlength="12"
+          onkeydown="if(event.key==='Enter')searchStop()">
+        <button class="btn-primary" onclick="searchStop()">Cerca</button>
+      </div>
+      <p class="search-hint">Il codice a 5 cifre è riportato sulla targhetta gialla del palo fermata, oppure sull'app Roma Mobilità.</p>
+    </div>
+    <div id="search-out"></div>
+  </div>
+
+</div>
+
+<!-- BOTTOM NAV -->
+<nav class="bnav">
+  <button class="bnav-btn on" id="nav-fav" onclick="goPage('fav')">
+    <svg viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+    </svg>
+    Preferite
+  </button>
+  <button class="bnav-btn" id="nav-search" onclick="goPage('search')">
+    <svg viewBox="0 0 24 24" fill="currentColor">
+      <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+    </svg>
+    Cerca fermata
+  </button>
+</nav>
+
+<!-- BOTTOM SHEET: ARRIVI -->
+<div class="overlay" id="arr-overlay" onclick="maybeCloseSheet(event)">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-hdr">
+      <div class="sheet-name" id="sheet-name">Fermata</div>
+      <div class="sheet-code" id="sheet-code"></div>
+    </div>
+    <div class="sheet-body" id="sheet-body">
+      <div class="loading"><div class="spinner"></div><p>Caricamento...</p></div>
+    </div>
+    <div class="sheet-foot">
+      <button class="btn-sec" onclick="closeSheet()">Chiudi</button>
+      <button class="btn-save" id="sheet-fav-btn" onclick="toggleFav()">⭐ Salva fermata</button>
+    </div>
+  </div>
+</div>
+
+<!-- DIALOG: RINOMINA / SALVA -->
+<div class="dialog-bg" id="dlg-bg" onclick="closeDlgBg(event)">
+  <div class="dialog">
+    <h3 id="dlg-title">Nome della fermata</h3>
+    <input type="text" id="dlg-input" placeholder="es. Sotto casa, Ufficio..."
+      onkeydown="if(event.key==='Enter')confirmDlg(); if(event.key==='Escape')closeDlg()">
+    <div class="dialog-btns">
+      <button class="btn-sec" onclick="closeDlg()">Annulla</button>
+      <button class="btn-save" onclick="confirmDlg()">Salva</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════
+// GTFS-RT PROTOBUF SCHEMA (subset necessario)
+// ═══════════════════════════════════════════════
+const PROTO = `
+syntax = "proto2";
+package transit_realtime;
+
+message FeedMessage {
+  required FeedHeader header = 1;
+  repeated FeedEntity entity = 2;
+}
+message FeedHeader {
+  required string gtfs_realtime_version = 1;
+  optional uint64 timestamp = 3;
+}
+message FeedEntity {
+  required string id = 1;
+  optional bool is_deleted = 2;
+  optional TripUpdate trip_update = 5;
+}
+message TripUpdate {
+  required TripDescriptor trip = 1;
+  optional VehicleDescriptor vehicle = 3;
+  repeated StopTimeUpdate stop_time_update = 2;
+  optional uint64 timestamp = 4;
+  message StopTimeEvent {
+    optional int32 delay = 1;
+    optional int64 time = 2;
+    optional float uncertainty = 3;
+  }
+  message StopTimeUpdate {
+    optional uint32 stop_sequence = 1;
+    optional string stop_id = 4;
+    optional StopTimeEvent arrival = 2;
+    optional StopTimeEvent departure = 3;
+    enum ScheduleRelationship {
+      SCHEDULED = 0;
+      SKIPPED = 1;
+      NO_DATA = 2;
+    }
+    optional ScheduleRelationship schedule_relationship = 5;
+  }
+}
+message TripDescriptor {
+  optional string trip_id = 1;
+  optional string route_id = 5;
+  optional string start_time = 2;
+  optional string start_date = 3;
+}
+message VehicleDescriptor {
+  optional string id = 1;
+  optional string label = 2;
+  optional string license_plate = 3;
+}
+`;
+
+// ═══════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════
+const FEED_URL = 'https://romamobilita.it/sites/default/files/rome_rtgtfs_trip_updates_feed.pb';
+const PROXIES = [
+  { name: 'corsproxy.io',  mk: url => `https://corsproxy.io/?${encodeURIComponent(url)}` },
+  { name: 'allorigins',    mk: url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}` },
+  { name: 'thingproxy',    mk: url => `https://thingproxy.freeboard.io/fetch/${url}` },
+  { name: 'codetabs',      mk: url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}` },
+  { name: 'htmldriven',    mk: url => `https://cors-proxy.htmldriven.com/?url=${encodeURIComponent(url)}` },
+];
+
+// ═══════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════
+let favs = JSON.parse(localStorage.getItem('atac_favs') || '[]');
+let protoRoot = null;
+let feedBuf = null;
+let feedTs = 0;
+let sheetStopId = null;
+let sheetStopName = null;
+let dlgMode = null;   // 'rename' | 'addfav'
+let dlgStopId = null;
+
+// ═══════════════════════════════════════════════
+// PROTO
+// ═══════════════════════════════════════════════
+async function getProto() {
+  if (protoRoot) return protoRoot;
+  const parsed = protobuf.parse(PROTO);
+  protoRoot = parsed.root;
+  return protoRoot;
+}
+
+// ═══════════════════════════════════════════════
+// FEED FETCH (con cache 60s e fallback proxy)
+// ═══════════════════════════════════════════════
+async function getFeed(force) {
+  if (!force && feedBuf && Date.now() - feedTs < 60000) return feedBuf;
+
+  const errors = [];
+  for (const proxy of PROXIES) {
+    try {
+      const ctl = new AbortController();
+      const tid = setTimeout(() => ctl.abort(), 14000);
+      const res = await fetch(proxy.mk(FEED_URL), {
+        signal: ctl.signal,
+        headers: { 'Accept': '*/*' }
+      });
+      clearTimeout(tid);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const buf = await res.arrayBuffer();
+      if (buf.byteLength < 100) throw new Error('risposta vuota o troppo corta');
+      // Verifica che sia un protobuf valido (inizia con byte di campo valido)
+      const first = new Uint8Array(buf)[0];
+      if (first === 0x3C || first === 0x7B) throw new Error('risposta HTML/JSON non binaria');
+      feedBuf = buf;
+      feedTs = Date.now();
+      lastWorkingProxy = proxy.name;
+      return buf;
+    } catch(e) {
+      errors.push(`[${proxy.name}] ${e.message}`);
+    }
+  }
+  throw new Error('Tutti i proxy hanno fallito:\n' + errors.join('\n'));
+}
+
+let lastWorkingProxy = null;
+
+// ═══════════════════════════════════════════════
+// PARSE ARRIVALS FOR STOP
+// ═══════════════════════════════════════════════
+async function getArrivals(stopId, force) {
+  const [root, buf] = await Promise.all([getProto(), getFeed(force)]);
+  const FM = root.lookupType('transit_realtime.FeedMessage');
+  const msg = FM.decode(new Uint8Array(buf));
+
+  const now = Math.floor(Date.now() / 1000);
+  const results = [];
+
+  for (const ent of (msg.entity || [])) {
+    const tu = ent.tripUpdate;
+    if (!tu) continue;
+
+    // GPS detection: vehicle descriptor present = GPS tracked
+    const isGPS = !!(tu.vehicle && (tu.vehicle.id || tu.vehicle.label));
+
+    for (const stu of (tu.stopTimeUpdate || [])) {
+      if (stu.stopId !== stopId) continue;
+      if (stu.scheduleRelationship === 1) continue; // SKIPPED
+
+      const ev = stu.departure || stu.arrival;
+      if (!ev) continue;
+
+      // Convert protobuf Long to number
+      let t = ev.time;
+      if (t && typeof t === 'object' && t.toNumber) t = t.toNumber();
+      else if (t) t = Number(t);
+      else continue;
+
+      if (t < now - 30 || t > now + 5400) continue; // finestra 90 min
+
+      const delayS = ev.delay;  // secondi (può essere null/0)
+      const delayMin = (delayS && delayS !== 0) ? Math.round(delayS / 60) : null;
+
+      // Se c'è delay valorizzato considera GPS anche senza vehicle descriptor
+      const gps = isGPS || (delayS !== undefined && delayS !== null && delayS !== 0);
+
+      results.push({
+        routeId: (tu.trip && tu.trip.routeId) || '?',
+        t, delayMin, gps,
+        minsAway: Math.round((t - now) / 60),
+      });
+    }
+  }
+
+  results.sort((a, b) => a.t - b.t);
+
+  // Deduplicazione: stessa linea nello stesso minuto
+  const seen = new Set();
+  return results.filter(r => {
+    const k = r.routeId + '_' + r.minsAway;
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  });
+}
+
+// ═══════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════
+function renderArrivalsHtml(arrivals) {
+  if (!arrivals.length) {
+    return `<div class="no-arr">🚌 Nessun autobus nei prossimi 90 minuti</div>`;
+  }
+
+  let html = '';
+  for (const a of arrivals.slice(0, 12)) {
+    const cls = a.minsAway <= 1 ? 'now' : a.minsAway <= 7 ? 'soon' : '';
+    const label = a.minsAway <= 0 ? '⚡ Ora' : a.minsAway === 1 ? '1 min' : `${a.minsAway} min`;
+    const clock = new Date(a.t * 1000).toLocaleTimeString('it-IT', {hour:'2-digit', minute:'2-digit'});
+    const tag = a.gps
+      ? `<span class="tag tag-gps">📡 GPS</span>`
+      : `<span class="tag tag-sched">📅 Orario</span>`;
+    const delay = (a.delayMin !== null && a.delayMin !== 0)
+      ? `<span class="tag-delay">${a.delayMin > 0 ? '+' : ''}${a.delayMin} min</span>`
+      : '';
+
+    html += `
+    <div class="arr-row">
+      <div class="route-badge">${esc(a.routeId)}</div>
+      <div class="arr-mid">
+        <div class="arr-line">Linea ${esc(a.routeId)}</div>
+        <div class="arr-tags">${tag}${delay}</div>
+      </div>
+      <div class="arr-time">
+        <div class="arr-mins ${cls}">${label}</div>
+        <div class="arr-clock">${clock}</div>
+      </div>
+    </div>`;
+  }
+
+  const upd = new Date().toLocaleTimeString('it-IT', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  html += `<div class="last-upd">Dati aggiornati alle ${upd} · feed ogni ~60s</div>`;
+  return html;
+}
+
+function renderFavs() {
+  const el = document.getElementById('fav-list');
+  if (!favs.length) {
+    el.innerHTML = `
+    <div class="empty">
+      <svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+      <h3>Nessuna fermata salvata</h3>
+      <p>Vai su "Cerca fermata" per trovare una fermata e aggiungila ai preferiti</p>
+    </div>`;
+    return;
+  }
+
+  el.innerHTML = favs.map(f => `
+  <div class="stop-card" onclick="openSheet('${esc(f.id)}','${esc(f.name)}')">
+    <div class="stop-card-row">
+      <div class="stop-num">${esc(f.id)}</div>
+      <div class="stop-meta">
+        <h3>${esc(f.name)}</h3>
+        <p>Tocca per vedere gli arrivi in tempo reale</p>
+      </div>
+      <div class="stop-btns" onclick="event.stopPropagation()">
+        <button class="ico-btn" onclick="openRenameDlg('${esc(f.id)}','${esc(f.name)}')" title="Rinomina">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm21.41-14.84c.39-.39.39-1.02 0-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+        </button>
+        <button class="ico-btn del" onclick="removeFav('${esc(f.id)}')" title="Rimuovi">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>`).join('');
+}
+
+// ═══════════════════════════════════════════════
+// BOTTOM SHEET
+// ═══════════════════════════════════════════════
+async function openSheet(stopId, stopName) {
+  sheetStopId = stopId;
+  sheetStopName = stopName;
+
+  document.getElementById('sheet-name').textContent = stopName;
+  document.getElementById('sheet-code').textContent = `Codice fermata: ${stopId}`;
+  updateSheetFavBtn();
+
+  document.getElementById('sheet-body').innerHTML =
+    `<div class="loading"><div class="spinner"></div><p>Caricamento arrivi...</p></div>`;
+  document.getElementById('arr-overlay').classList.add('on');
+
+  try {
+    const arrivals = await getArrivals(stopId);
+    document.getElementById('sheet-body').innerHTML =
+      `<div class="arr-list">${renderArrivalsHtml(arrivals)}</div>`;
+  } catch(e) {
+    document.getElementById('sheet-body').innerHTML =
+      `<div style="padding:16px">
+        <div class="err-box">⚠️ ${esc(e.message.replace(/\n/g,'<br>'))}<br><br>
+        <small>Verifica la connessione e riprova, oppure prova su una rete diversa.</small></div>
+      </div>`;
+  }
+}
+
+async function refreshSheet() {
+  if (!sheetStopId) return;
+  document.getElementById('sheet-body').innerHTML =
+    `<div class="loading"><div class="spinner"></div><p>Aggiornamento...</p></div>`;
+  feedBuf = null; feedTs = 0; // force refresh
+  try {
+    const arrivals = await getArrivals(sheetStopId, true);
+    document.getElementById('sheet-body').innerHTML =
+      `<div class="arr-list">${renderArrivalsHtml(arrivals)}</div>`;
+  } catch(e) {
+    document.getElementById('sheet-body').innerHTML =
+      `<div style="padding:16px"><div class="err-box">⚠️ ${esc(e.message)}</div></div>`;
+  }
+}
+
+function updateSheetFavBtn() {
+  const btn = document.getElementById('sheet-fav-btn');
+  const saved = isFav(sheetStopId);
+  btn.textContent = saved ? '✕ Rimuovi dai preferiti' : '⭐ Salva fermata';
+  btn.classList.toggle('saved', saved);
+}
+
+function closeSheet() {
+  document.getElementById('arr-overlay').classList.remove('on');
+  sheetStopId = null;
+}
+
+function maybeCloseSheet(e) {
+  if (e.target === document.getElementById('arr-overlay')) closeSheet();
+}
+
+function toggleFav() {
+  if (!sheetStopId) return;
+  if (isFav(sheetStopId)) {
+    favs = favs.filter(f => f.id !== sheetStopId);
+    saveFavs();
+    renderFavs();
+    toast('Fermata rimossa dai preferiti');
+    updateSheetFavBtn();
+  } else {
+    dlgMode = 'addfav';
+    dlgStopId = sheetStopId;
+    openDlg(`Salva fermata ${sheetStopId}`, `Fermata ${sheetStopId}`);
+  }
+}
+
+// ═══════════════════════════════════════════════
+// SEARCH
+// ═══════════════════════════════════════════════
+async function searchStop() {
+  const stopId = document.getElementById('stop-input').value.trim().replace(/\s/g,'');
+  if (!stopId) { toast('Inserisci un codice fermata'); return; }
+
+  const out = document.getElementById('search-out');
+  out.innerHTML = `<div class="loading"><div class="spinner"></div><p>Ricerca per fermata <strong>${esc(stopId)}</strong>...</p></div>`;
+
+  try {
+    const arrivals = await getArrivals(stopId);
+    const name = getFavName(stopId) || `Fermata ${stopId}`;
+    const saved = isFav(stopId);
+
+    const arrHtml = `<div class="arr-list">${renderArrivalsHtml(arrivals)}</div>`;
+
+    out.innerHTML = `
+    <div class="stop-card">
+      <div class="stop-card-row">
+        <div class="stop-num">${esc(stopId)}</div>
+        <div class="stop-meta">
+          <h3>${esc(name)}</h3>
+          <p>${arrivals.length} autobus in arrivo</p>
+        </div>
+        <div class="stop-btns">
+          <button class="ico-btn" title="${saved ? 'Già nei preferiti' : 'Aggiungi ai preferiti'}"
+            onclick="addFavFromSearch('${esc(stopId)}')">
+            <svg viewBox="0 0 24 24" fill="${saved ? 'var(--red)' : '#ccc'}">
+              <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      ${arrHtml}
+    </div>`;
+
+  } catch(e) {
+    out.innerHTML = `<div class="err-box">⚠️ ${esc(e.message.replace(/\n/g,'<br>'))}</div>`;
+  }
+}
+
+function addFavFromSearch(stopId) {
+  if (isFav(stopId)) { toast('Già nei preferiti'); return; }
+  dlgMode = 'addfav';
+  dlgStopId = stopId;
+  openDlg(`Salva fermata ${stopId}`, `Fermata ${stopId}`);
+}
+
+// ═══════════════════════════════════════════════
+// DIALOG
+// ═══════════════════════════════════════════════
+function openDlg(title, defaultVal) {
+  document.getElementById('dlg-title').textContent = title;
+  document.getElementById('dlg-input').value = defaultVal;
+  document.getElementById('dlg-bg').classList.add('on');
+  setTimeout(() => document.getElementById('dlg-input').select(), 80);
+}
+
+function closeDlg() {
+  document.getElementById('dlg-bg').classList.remove('on');
+  dlgMode = null; dlgStopId = null;
+}
+
+function closeDlgBg(e) {
+  if (e.target === document.getElementById('dlg-bg')) closeDlg();
+}
+
+function confirmDlg() {
+  const name = document.getElementById('dlg-input').value.trim();
+  if (!name) { toast('Inserisci un nome'); return; }
+
+  if (dlgMode === 'addfav') {
+    favs.push({ id: dlgStopId, name });
+    saveFavs();
+    renderFavs();
+    toast('✓ Fermata salvata nei preferiti!');
+    updateSheetFavBtn();
+    // Refresh heart icon in search results
+    const stopInput = document.getElementById('stop-input').value.trim();
+    if (stopInput === dlgStopId) searchStop();
+  } else if (dlgMode === 'rename') {
+    const f = favs.find(x => x.id === dlgStopId);
+    if (f) { f.name = name; saveFavs(); renderFavs(); toast('Nome aggiornato'); }
+  }
+  closeDlg();
+}
+
+function openRenameDlg(stopId, current) {
+  dlgMode = 'rename';
+  dlgStopId = stopId;
+  openDlg('Rinomina fermata', current);
+}
+
+// ═══════════════════════════════════════════════
+// FAVORITES HELPERS
+// ═══════════════════════════════════════════════
+const isFav = id => favs.some(f => f.id === id);
+const getFavName = id => (favs.find(f => f.id === id) || {}).name || null;
+function saveFavs() { localStorage.setItem('atac_favs', JSON.stringify(favs)); }
+function removeFav(id) {
+  favs = favs.filter(f => f.id !== id);
+  saveFavs(); renderFavs(); toast('Fermata rimossa');
+}
+
+// ═══════════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════════
+function goPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('on'));
+  document.querySelectorAll('.bnav-btn').forEach(b => b.classList.remove('on'));
+  document.getElementById(`pg-${name}`).classList.add('on');
+  document.getElementById(`nav-${name}`).classList.add('on');
+}
+
+// ═══════════════════════════════════════════════
+// REFRESH ALL
+// ═══════════════════════════════════════════════
+async function refreshAll() {
+  feedBuf = null; feedTs = 0;
+  const btn = document.getElementById('refresh-all-btn');
+  btn.textContent = '...';
+  try {
+    await getFeed(true);
+    toast('✓ Dati aggiornati');
+  } catch(e) {
+    toast('Errore di rete');
+  } finally {
+    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+    </svg> Aggiorna`;
+  }
+}
+
+// ═══════════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════════
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+let toastTimer;
+function toast(msg, ms = 2500) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('on'), ms);
+}
+
+// ═══════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof protobuf === 'undefined') {
+    document.querySelector('.content').innerHTML = `
+      <div class="err-box" style="margin:24px">
+        ⚠️ Libreria non caricata. Verifica la connessione internet e ricarica la pagina.
+      </div>`;
+    return;
+  }
+
+  renderFavs();
+
+  // Pre-carica il proto in background
+  getProto().catch(() => {});
+
+  // Enter nel dialog
+  document.getElementById('dlg-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') confirmDlg();
+    if (e.key === 'Escape') closeDlg();
+  });
+});
+</script>
+
+</body>
+</html>
