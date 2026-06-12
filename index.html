@@ -479,7 +479,7 @@ function parseEvent(r) {
 }
 
 function parseTripUpdate(r) {
-  const tu = { routeId: '?', vehicleId: null, stus: [] };
+  const tu = { routeId: null, tripId: null, vehicleId: null, stus: [] };
   while (!r.done()) {
     const [f, wt] = r.tag();
     if (f === 1 && wt === 2) {
@@ -487,7 +487,8 @@ function parseTripUpdate(r) {
       const len = r.uint(); const sub = r.sub(len); r.pos += len;
       while (!sub.done()) {
         const [sf, swt] = sub.tag();
-        if (sf === 5 && swt === 2) { const l = sub.uint(); tu.routeId = sub.str(l); }
+        if      (sf === 1 && swt === 2) { const l = sub.uint(); tu.tripId  = sub.str(l); }
+        else if (sf === 5 && swt === 2) { const l = sub.uint(); tu.routeId = sub.str(l); }
         else sub.skip(swt);
       }
     } else if (f === 2 && wt === 2) {
@@ -516,6 +517,14 @@ function parseTripUpdate(r) {
   return tu;
 }
 
+// Prova a estrarre il numero linea dal trip_id ATAC
+// Formati noti: "40-xxx", "40.xxx", "40_xxx" → "40"
+function routeFromTrip(tripId) {
+  if (!tripId) return null;
+  const m = tripId.match(/^([A-Z0-9]{1,6})[.\-_]/i);
+  return m ? m[1] : null;
+}
+
 // ═══════════════════════════════════════════════
 // CONFIG
 // ═══════════════════════════════════════════════
@@ -534,6 +543,8 @@ const PROXIES = [
 let favs = JSON.parse(localStorage.getItem('atac_favs') || '[]');
 let feedBuf = null;
 let feedTs = 0;
+let muoviSession = null;
+let muoviSessionTs = 0;
 let sheetStopId = null;
 let sheetStopName = null;
 let dlgMode = null;   // 'rename' | 'addfav'
@@ -576,10 +587,108 @@ async function getFeed(force) {
 let lastWorkingProxy = null;
 
 // ═══════════════════════════════════════════════
+// MUOVI.ROMA.IT XML-RPC API (fonte primaria)
+// ═══════════════════════════════════════════════
+const MUOVI_AUTH  = 'http://muovi.roma.it/ws/xml/autenticazione/1';
+const MUOVI_PALINE = 'http://muovi.roma.it/ws/xml/paline/7';
+
+function xmlRpcReq(method, ...args) {
+  const params = args.map(a =>
+    typeof a === 'number'
+      ? `<param><value><int>${a}</int></value></param>`
+      : `<param><value><string>${String(a).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</string></value></param>`
+  ).join('');
+  return `<?xml version="1.0"?><methodCall><methodName>${method}</methodName><params>${params}</params></methodCall>`;
+}
+
+async function muoviPost(url, body) {
+  for (const proxy of PROXIES) {
+    try {
+      const ctl = new AbortController();
+      const tid = setTimeout(() => ctl.abort(), 14000);
+      const res = await fetch(proxy.mk(url), {
+        method: 'POST', signal: ctl.signal,
+        headers: { 'Content-Type': 'text/xml' },
+        body
+      });
+      clearTimeout(tid);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      if (!text.includes('methodResponse')) throw new Error('Non XML-RPC');
+      return new DOMParser().parseFromString(text, 'text/xml');
+    } catch(e) { /* prossimo proxy */ }
+  }
+  throw new Error('XML-RPC: tutti i proxy falliti');
+}
+
+function parseXmlRpcVal(node) {
+  if (!node) return null;
+  const c = node.firstElementChild;
+  if (!c) return node.textContent || '';
+  switch (c.tagName) {
+    case 'string':  return c.textContent;
+    case 'int': case 'i4': return parseInt(c.textContent, 10);
+    case 'double':  return parseFloat(c.textContent);
+    case 'boolean': return c.textContent === '1';
+    case 'nil':     return null;
+    case 'struct': {
+      const o = {};
+      for (const m of c.children) {
+        o[m.querySelector('name').textContent] = parseXmlRpcVal(m.querySelector('value'));
+      }
+      return o;
+    }
+    case 'array':
+      return Array.from(c.querySelector('data').children).map(v => parseXmlRpcVal(v));
+    default: return c.textContent;
+  }
+}
+
+async function getMuoviSession(force) {
+  if (!force && muoviSession && Date.now() - muoviSessionTs < 25 * 60000) return muoviSession;
+  const doc = await muoviPost(MUOVI_AUTH, xmlRpcReq('autenticazione.Accedi', '', ''));
+  if (doc.querySelector('fault')) throw new Error('Auth fallita');
+  const val = parseXmlRpcVal(doc.querySelector('params > param > value'));
+  if (!val || typeof val !== 'string') throw new Error('Session non valida');
+  muoviSession = val; muoviSessionTs = Date.now();
+  return muoviSession;
+}
+
+async function getMuoviArrivals(stopId) {
+  let session = await getMuoviSession();
+  let doc = await muoviPost(MUOVI_PALINE, xmlRpcReq('paline.Previsioni', session, stopId, 'it'));
+  if (doc.querySelector('fault')) {
+    // Session scaduta, riprova
+    muoviSession = null;
+    session = await getMuoviSession(true);
+    doc = await muoviPost(MUOVI_PALINE, xmlRpcReq('paline.Previsioni', session, stopId, 'it'));
+    if (doc.querySelector('fault')) throw new Error('paline.Previsioni fallita');
+  }
+  const resp = parseXmlRpcVal(doc.querySelector('params > param > value'));
+  const arrivi = resp?.risposta?.arrivi || [];
+  const now = Math.floor(Date.now() / 1000);
+  const results = [];
+  for (const a of arrivi) {
+    if (a.nessun_autobus) continue;
+    const mins = typeof a.tempo_attesa === 'number' ? a.tempo_attesa : -1;
+    if (mins < 0 || mins > 90) continue;
+    results.push({
+      routeId: a.linea || '?',
+      t: now + mins * 60,
+      delayMin: null,
+      gps: !a.non_monitorata,   // false = orario programmato
+      minsAway: mins,
+      dest: a.destinazione || a.capolinea || ''
+    });
+  }
+  return results.sort((a, b) => a.minsAway - b.minsAway);
+}
+
+// ═══════════════════════════════════════════════
 // PARSE ARRIVALS FOR STOP
 // ═══════════════════════════════════════════════
 
-async function getArrivals(stopId, force) {
+async function getGtfsArrivals(stopId, force) {
   const buf = await getFeed(force);
   const r = new PBReader(buf);
   const now = Math.floor(Date.now() / 1000);
@@ -610,13 +719,24 @@ async function getArrivals(stopId, force) {
       const delayS = ev.delay || 0;
       const delayMin = delayS ? Math.round(delayS / 60) : null;
       const gps = !!tu.vehicleId || !!delayS;
-      results.push({ routeId: tu.routeId, t, delayMin, gps, minsAway: Math.round((t - now) / 60) });
+      // routeId dal feed, o estratto dal tripId, o '?'
+      const routeId = tu.routeId || routeFromTrip(tu.tripId) || '?';
+      results.push({ routeId, t, delayMin, gps, minsAway: Math.round((t - now) / 60) });
     }
   }
 
   results.sort((a, b) => a.t - b.t);
   const seen = new Set();
   return results.filter(x => { const k = x.routeId+'_'+x.minsAway; if(seen.has(k))return false; seen.add(k); return true; });
+}
+
+// Dispatcher: prova muovi.roma.it, fallback su GTFS-RT
+async function getArrivals(stopId, force) {
+  try {
+    return await getMuoviArrivals(stopId);
+  } catch(e) {
+    return await getGtfsArrivals(stopId, force);
+  }
 }
 
 // ═══════════════════════════════════════════════
@@ -638,12 +758,13 @@ function renderArrivalsHtml(arrivals) {
     const delay = (a.delayMin !== null && a.delayMin !== 0)
       ? `<span class="tag-delay">${a.delayMin > 0 ? '+' : ''}${a.delayMin} min</span>`
       : '';
+    const destLabel = a.dest ? `<span style="font-size:11px;color:#888;margin-left:4px">→ ${esc(a.dest)}</span>` : '';
 
     html += `
     <div class="arr-row">
       <div class="route-badge">${esc(a.routeId)}</div>
       <div class="arr-mid">
-        <div class="arr-line">Linea ${esc(a.routeId)}</div>
+        <div class="arr-line">Linea ${esc(a.routeId)}${destLabel}</div>
         <div class="arr-tags">${tag}${delay}</div>
       </div>
       <div class="arr-time">
