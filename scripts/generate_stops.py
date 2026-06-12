@@ -39,11 +39,12 @@ def main():
         # ── 1. Servizi attivi oggi ────────────────────────────────────────
         active_services: set[str] = set()
 
-        with z.open('calendar.txt') as f:
-            for row in csv.DictReader(io.TextIOWrapper(f, 'utf-8-sig')):
-                if row['start_date'] <= today <= row['end_date']:
-                    if row.get(dow_fields[dow], '0') == '1':
-                        active_services.add(row['service_id'])
+        if 'calendar.txt' in all_files:
+            with z.open('calendar.txt') as f:
+                for row in csv.DictReader(io.TextIOWrapper(f, 'utf-8-sig')):
+                    if row['start_date'] <= today <= row['end_date']:
+                        if row.get(dow_fields[dow], '0') == '1':
+                            active_services.add(row['service_id'])
 
         if 'calendar_dates.txt' in all_files:
             with z.open('calendar_dates.txt') as f:
