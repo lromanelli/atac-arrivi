@@ -359,14 +359,6 @@ html, body {
   color: var(--red); font-size: 13px; font-weight: 600;
   text-decoration: none;
 }
-.settings-link:active { opacity: .7; }
-
-.source-badge {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-size: 10px; font-weight: 700;
-  padding: 2px 6px; border-radius: 4px;
-  background: #f0f0f2; color: var(--muted);
-}
 </style>
 </head>
 <body>
@@ -406,7 +398,7 @@ html, body {
   <div class="page" id="pg-settings">
     <div class="settings-section">
       <h2>🔑 Chiave API muovi.roma.it</h2>
-      <p class="s-desc">Con una chiave gratuita puoi vedere <strong>tutti gli autobus</strong>, inclusi quelli in orario (non solo quelli in ritardo). La stessa fonte usata dai pannelli elettronici alle fermate.</p>
+      <p class="s-desc">Con una chiave gratuita puoi vedere <strong>tutti gli autobus</strong>, inclusi quelli in orario. La stessa fonte dei pannelli alle fermate.</p>
       <label>API Key</label>
       <div class="key-row">
         <input type="password" id="settings-key-input" placeholder="Incolla qui la tua chiave API"
@@ -418,10 +410,9 @@ html, body {
         ➜ Registrati su muovi.roma.it per la chiave gratuita
       </a>
     </div>
-
     <div class="settings-section">
       <h2>ℹ️ Senza chiave API</h2>
-      <p class="s-desc">Vengono mostrati solo gli autobus con ritardo attivo rilevati via GPS (feed GTFS-RT di romamobilita.it). Le fermate con autobus in orario appaiono vuote.</p>
+      <p class="s-desc">Vengono mostrati gli orari programmati dal GTFS statico (aggiornato ogni notte) con i dati GPS in tempo reale sovrapposti dal feed GTFS-RT di romamobilita.it.</p>
     </div>
   </div>
 
@@ -435,7 +426,7 @@ html, body {
           onkeydown="if(event.key==='Enter')searchStop()">
         <button class="btn-primary" onclick="searchStop()">Cerca</button>
       </div>
-      <p class="search-hint">Il codice a 5 cifre è riportato sulla targhetta gialla del palo fermata, oppure sull'app Roma Mobilità.</p>
+      <p class="search-hint">Il codice a 5 cifre è riportato sulla targhetta gialla del palo fermata.</p>
     </div>
     <div id="search-out"></div>
   </div>
@@ -500,7 +491,7 @@ html, body {
 
 <script>
 // ══════════════════════════════════════════════
-// PARSER BINARIO PROTOBUF (no dipendenze esterne)
+// PARSER BINARIO PROTOBUF
 // ══════════════════════════════════════════════
 class PBReader {
   constructor(buf, start, end) {
@@ -522,7 +513,6 @@ class PBReader {
     return v | 0;
   }
   int64() {
-    // usa float per evitare overflow JS a 32bit (preciso per timestamp unix)
     let result = 0, shift = 0, b;
     for (let i = 0; i < 10; i++) {
       b = this.b[this.pos++];
@@ -557,7 +547,6 @@ function parseTripUpdate(r) {
   while (!r.done()) {
     const [f, wt] = r.tag();
     if (f === 1 && wt === 2) {
-      // TripDescriptor
       const len = r.uint(); const sub = r.sub(len); r.pos += len;
       while (!sub.done()) {
         const [sf, swt] = sub.tag();
@@ -566,7 +555,6 @@ function parseTripUpdate(r) {
         else sub.skip(swt);
       }
     } else if (f === 2 && wt === 2) {
-      // StopTimeUpdate
       const len = r.uint(); const sub = r.sub(len); r.pos += len;
       const stu = { stopId: null, arrival: null, departure: null, schedRel: 0 };
       while (!sub.done()) {
@@ -579,7 +567,6 @@ function parseTripUpdate(r) {
       }
       tu.stus.push(stu);
     } else if (f === 3 && wt === 2) {
-      // VehicleDescriptor
       const len = r.uint(); const sub = r.sub(len); r.pos += len;
       while (!sub.done()) {
         const [sf, swt] = sub.tag();
@@ -591,8 +578,6 @@ function parseTripUpdate(r) {
   return tu;
 }
 
-// Prova a estrarre il numero linea dal trip_id ATAC
-// Formati noti: "40-xxx", "40.xxx", "40_xxx" → "40"
 function routeFromTrip(tripId) {
   if (!tripId) return null;
   const m = tripId.match(/^([A-Z0-9]{1,6})[.\-_]/i);
@@ -602,7 +587,10 @@ function routeFromTrip(tripId) {
 // ═══════════════════════════════════════════════
 // CONFIG
 // ═══════════════════════════════════════════════
-const FEED_URL = 'https://romamobilita.it/sites/default/files/rome_rtgtfs_trip_updates_feed.pb';
+const FEED_URL    = 'https://romamobilita.it/sites/default/files/rome_rtgtfs_trip_updates_feed.pb';
+const VP_FEED_URL = 'https://romamobilita.it/sites/default/files/rome_rtgtfs_vehicle_positions_feed.pb';
+const DATA_BASE   = '/atac-arrivi/data/stops/';
+
 const PROXIES = [
   { name: 'corsproxy.io',  mk: url => `https://corsproxy.io/?${encodeURIComponent(url)}` },
   { name: 'allorigins',    mk: url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}` },
@@ -614,57 +602,92 @@ const PROXIES = [
 // ═══════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════
-let favs = JSON.parse(localStorage.getItem('atac_favs') || '[]');
-let muoviApiKey = localStorage.getItem('atac_muovi_key') || null;
-let feedBuf = null;
-let feedTs = 0;
-let muoviSession = null;
-let muoviSessionTs = 0;
-let sheetStopId = null;
-let sheetStopName = null;
-let dlgMode = null;   // 'rename' | 'addfav'
-let dlgStopId = null;
-
+let favs          = JSON.parse(localStorage.getItem('atac_favs') || '[]');
+let muoviApiKey   = localStorage.getItem('atac_muovi_key') || null;
+let feedBuf = null, feedTs = 0;
+let vpCache = null, vpCacheTs = 0;
+let muoviSession = null, muoviSessionTs = 0;
+let sheetStopId = null, sheetStopName = null;
+let dlgMode = null, dlgStopId = null;
 
 // ═══════════════════════════════════════════════
-// FEED FETCH (con cache 60s e fallback proxy)
+// FETCH PROTOBUF (con cache 60s e fallback proxy)
 // ═══════════════════════════════════════════════
-async function getFeed(force) {
-  if (!force && feedBuf && Date.now() - feedTs < 60000) return feedBuf;
-
+async function fetchPb(url, force, cacheRef) {
+  if (!force && cacheRef.buf && Date.now() - cacheRef.ts < 60000) return cacheRef.buf;
   const errors = [];
   for (const proxy of PROXIES) {
     try {
       const ctl = new AbortController();
       const tid = setTimeout(() => ctl.abort(), 14000);
-      const res = await fetch(proxy.mk(FEED_URL), {
-        signal: ctl.signal,
-        headers: { 'Accept': '*/*' }
-      });
+      const res = await fetch(proxy.mk(url), { signal: ctl.signal, headers: { 'Accept': '*/*' } });
       clearTimeout(tid);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const buf = await res.arrayBuffer();
-      if (buf.byteLength < 100) throw new Error('risposta vuota o troppo corta');
-      // Verifica che sia un protobuf valido (inizia con byte di campo valido)
+      if (buf.byteLength < 100) throw new Error('risposta vuota');
       const first = new Uint8Array(buf)[0];
-      if (first === 0x3C || first === 0x7B) throw new Error('risposta HTML/JSON non binaria');
-      feedBuf = buf;
-      feedTs = Date.now();
-      lastWorkingProxy = proxy.name;
+      if (first === 0x3C || first === 0x7B) throw new Error('non binario');
+      cacheRef.buf = buf; cacheRef.ts = Date.now();
       return buf;
-    } catch(e) {
-      errors.push(`[${proxy.name}] ${e.message}`);
-    }
+    } catch(e) { errors.push(`[${proxy.name}] ${e.message}`); }
   }
-  throw new Error('Tutti i proxy hanno fallito:\n' + errors.join('\n'));
+  throw new Error('Tutti i proxy falliti:\n' + errors.join('\n'));
 }
 
-let lastWorkingProxy = null;
+const _tuCache = { buf: null, ts: 0 };
+async function getFeed(force) {
+  const buf = await fetchPb(FEED_URL, force, _tuCache);
+  feedBuf = buf; feedTs = _tuCache.ts;
+  return buf;
+}
 
 // ═══════════════════════════════════════════════
-// MUOVI.ROMA.IT XML-RPC API (fonte primaria)
+// VEHICLE POSITIONS → set di trip_id GPS attivi
 // ═══════════════════════════════════════════════
-const MUOVI_AUTH  = 'http://muovi.roma.it/ws/xml/autenticazione/1';
+async function getActiveTrips(force) {
+  if (!force && vpCache && Date.now() - vpCacheTs < 60000) return vpCache;
+  try {
+    const cacheRef = { buf: null, ts: 0 };
+    const buf = await fetchPb(VP_FEED_URL, force, cacheRef);
+    const r = new PBReader(buf);
+    const active = new Set();
+    while (!r.done()) {
+      const [f, wt] = r.tag();
+      if (f !== 2 || wt !== 2) { r.skip(wt); continue; }
+      const elen = r.uint();
+      const entity = r.sub(elen); r.pos += elen;
+      while (!entity.done()) {
+        const [ef, ewt] = entity.tag();
+        if (ef === 4 && ewt === 2) {
+          const vplen = entity.uint();
+          const vp = entity.sub(vplen); entity.pos += vplen;
+          while (!vp.done()) {
+            const [vf, vwt] = vp.tag();
+            if (vf === 1 && vwt === 2) {
+              const tlen = vp.uint();
+              const td = vp.sub(tlen); vp.pos += tlen;
+              while (!td.done()) {
+                const [tf, twt] = td.tag();
+                if (tf === 1 && twt === 2) { const l = td.uint(); active.add(td.str(l)); }
+                else td.skip(twt);
+              }
+            } else vp.skip(vwt);
+          }
+        } else entity.skip(ewt);
+      }
+    }
+    vpCache = active; vpCacheTs = Date.now();
+    return active;
+  } catch(e) {
+    console.warn('vehicle_positions non disponibile:', e.message);
+    return new Set();
+  }
+}
+
+// ═══════════════════════════════════════════════
+// MUOVI.ROMA.IT XML-RPC (opzionale, richiede chiave)
+// ═══════════════════════════════════════════════
+const MUOVI_AUTH   = 'http://muovi.roma.it/ws/xml/autenticazione/1';
 const MUOVI_PALINE = 'http://muovi.roma.it/ws/xml/paline/7';
 
 function xmlRpcReq(method, ...args) {
@@ -683,8 +706,7 @@ async function muoviPost(url, body) {
       const tid = setTimeout(() => ctl.abort(), 14000);
       const res = await fetch(proxy.mk(url), {
         method: 'POST', signal: ctl.signal,
-        headers: { 'Content-Type': 'text/xml' },
-        body
+        headers: { 'Content-Type': 'text/xml' }, body
       });
       clearTimeout(tid);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -734,7 +756,6 @@ async function getMuoviArrivals(stopId) {
   let session = await getMuoviSession();
   let doc = await muoviPost(MUOVI_PALINE, xmlRpcReq('paline.Previsioni', session, stopId, 'it'));
   if (doc.querySelector('fault')) {
-    // Session scaduta, riprova
     muoviSession = null;
     session = await getMuoviSession(true);
     doc = await muoviPost(MUOVI_PALINE, xmlRpcReq('paline.Previsioni', session, stopId, 'it'));
@@ -752,7 +773,7 @@ async function getMuoviArrivals(stopId) {
       routeId: a.linea || '?',
       t: now + mins * 60,
       delayMin: null,
-      gps: !a.non_monitorata,   // non_monitorata=true → orario programmato
+      gps: !a.non_monitorata,
       minsAway: mins,
       dest: a.destinazione || a.capolinea || '',
       source: 'muovi'
@@ -764,29 +785,23 @@ async function getMuoviArrivals(stopId) {
 // ═══════════════════════════════════════════════
 // SCHEDULE DATA (da GitHub Pages /data/stops/)
 // ═══════════════════════════════════════════════
-const DATA_BASE = '/atac-arrivi/data/stops/';
-
 async function getScheduleData(stopId) {
-  // Formato data locale italiana → YYYYMMDD
   const now = new Date();
   const today = now.getFullYear().toString()
     + String(now.getMonth()+1).padStart(2,'0')
     + String(now.getDate()).padStart(2,'0');
 
-  // Cache in localStorage (invalidata automaticamente al cambio data)
   const cacheKey = `sched_${stopId}_${today}`;
   const cached = localStorage.getItem(cacheKey);
   if (cached) {
-    try { return JSON.parse(cached); } catch(e) { /* cache corrotta, ricarica */ }
+    try { return JSON.parse(cached); } catch(e) { /* cache corrotta */ }
   }
 
   const resp = await fetch(`${DATA_BASE}${stopId}.json`);
   if (!resp.ok) throw new Error(`Dati orari non trovati (${resp.status})`);
   const data = await resp.json();
 
-  // Salva in cache (ignora errori di quota)
   try {
-    // Pulisci cache vecchia per questo stop
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
       if (k && k.startsWith(`sched_${stopId}_`) && k !== cacheKey) {
@@ -794,13 +809,12 @@ async function getScheduleData(stopId) {
       }
     }
     localStorage.setItem(cacheKey, JSON.stringify(data));
-  } catch(e) { /* localStorage pieno — non critico */ }
+  } catch(e) { /* quota piena */ }
 
   return data;
 }
 
 function timeStrToSecs(t) {
-  // Accetta "HH:MM" o "HH:MM:SS" (inclusi valori > 24 per corse notturne)
   const p = t.split(':').map(Number);
   return p[0]*3600 + p[1]*60 + (p[2]||0);
 }
@@ -812,11 +826,11 @@ async function getScheduleArrivals(stopId) {
   const epoch = Math.floor(Date.now()/1000);
   const results = [];
 
-  for (const [route, time, dest] of data.deps) {
+  for (const dep of data.deps) {
+    const [route, time, dest, tripId] = dep;
     let diffSec = timeStrToSecs(time) - nowSec;
-    // Gestisci corse notturne che attraversano mezzanotte
     if (diffSec < -7200) diffSec += 86400;
-    if (diffSec < -60 || diffSec > 5400) continue;  // finestra: -1 min … +90 min
+    if (diffSec < -60 || diffSec > 5400) continue;
     results.push({
       routeId: route,
       t: epoch + diffSec,
@@ -824,68 +838,16 @@ async function getScheduleArrivals(stopId) {
       gps: false,
       minsAway: Math.round(diffSec / 60),
       dest: dest || '',
+      tripId: tripId || null,
       source: 'schedule'
     });
   }
   return results;
 }
 
-async function getCombinedArrivals(stopId, force) {
-  // Lancia schedule e GTFS-RT in parallelo
-  const [schedRes, rtRes] = await Promise.allSettled([
-    getScheduleArrivals(stopId),
-    getGtfsArrivals(stopId, force)
-  ]);
-
-  const sched = schedRes.status === 'fulfilled' ? schedRes.value : [];
-  const rt    = rtRes.status   === 'fulfilled' ? rtRes.value   : [];
-
-  // Se schedule non disponibile (primo avvio prima del deploy) usa solo RT
-  if (!sched.length) {
-    return rt.length ? rt : (() => { throw schedRes.reason || new Error('Dati non ancora disponibili'); })();
-  }
-
-  // Mappa RT per routeId → [arrivi]
-  const rtMap = {};
-  for (const a of rt) {
-    if (!rtMap[a.routeId]) rtMap[a.routeId] = [];
-    rtMap[a.routeId].push(a);
-  }
-
-  const used = new Set();
-  const results = sched.map(s => {
-    const candidates = rtMap[s.routeId] || [];
-    for (const r of candidates) {
-      if (used.has(r)) continue;
-      if (Math.abs(r.t - s.t) < 8*60) {  // stesso viaggio se entro 8 min
-        used.add(r);
-        return { ...s, t: r.t, delayMin: r.delayMin, gps: r.gps,
-                 minsAway: r.minsAway, source: 'combined' };
-      }
-    }
-    return s;
-  });
-
-  // Aggiungi RT non abbinati (es. bus extra non in orario)
-  for (const r of rt) {
-    if (!used.has(r)) results.push(r);
-  }
-
-  results.sort((a, b) => a.t - b.t);
-
-  // Deduplicazione
-  const seen = new Set();
-  return results.filter(x => {
-    const k = x.routeId+'_'+x.minsAway;
-    if (seen.has(k)) return false;
-    seen.add(k); return true;
-  });
-}
-
 // ═══════════════════════════════════════════════
-// PARSE ARRIVALS FOR STOP
+// GTFS-RT ARRIVALS (solo bus con ritardo/GPS attivo)
 // ═══════════════════════════════════════════════
-
 async function getGtfsArrivals(stopId, force) {
   const buf = await getFeed(force);
   const r = new PBReader(buf);
@@ -895,7 +857,6 @@ async function getGtfsArrivals(stopId, force) {
   while (!r.done()) {
     const [f, wt] = r.tag();
     if (f !== 2 || wt !== 2) { r.skip(wt); continue; }
-    // FeedEntity
     const elen = r.uint();
     const entity = r.sub(elen); r.pos += elen;
     let tu = null;
@@ -917,7 +878,6 @@ async function getGtfsArrivals(stopId, force) {
       const delayS = ev.delay || 0;
       const delayMin = delayS ? Math.round(delayS / 60) : null;
       const gps = !!tu.vehicleId || !!delayS;
-      // routeId dal feed, o estratto dal tripId, o '?'
       const routeId = tu.routeId || routeFromTrip(tu.tripId) || '?';
       results.push({ routeId, t, delayMin, gps, minsAway: Math.round((t - now) / 60), source: 'gtfs' });
     }
@@ -928,16 +888,69 @@ async function getGtfsArrivals(stopId, force) {
   return results.filter(x => { const k = x.routeId+'_'+x.minsAway; if(seen.has(k))return false; seen.add(k); return true; });
 }
 
-// Dispatcher: priorità muovi.roma.it > schedule+RT combinati > solo RT
+// ═══════════════════════════════════════════════
+// COMBINED: orario + GPS in tempo reale
+// ═══════════════════════════════════════════════
+async function getCombinedArrivals(stopId, force) {
+  const [schedRes, rtRes, vpRes] = await Promise.allSettled([
+    getScheduleArrivals(stopId),
+    getGtfsArrivals(stopId, force),
+    getActiveTrips(force)
+  ]);
+
+  const sched       = schedRes.status === 'fulfilled' ? schedRes.value : [];
+  const rt          = rtRes.status    === 'fulfilled' ? rtRes.value    : [];
+  const activeTrips = vpRes.status    === 'fulfilled' ? vpRes.value    : new Set();
+
+  if (!sched.length) {
+    if (rt.length) return rt;
+    throw schedRes.reason || new Error('Dati orari non ancora disponibili — riprova tra qualche ora');
+  }
+
+  const rtMap = {};
+  for (const a of rt) {
+    if (!rtMap[a.routeId]) rtMap[a.routeId] = [];
+    rtMap[a.routeId].push(a);
+  }
+
+  const used = new Set();
+  const results = sched.map(s => {
+    const candidates = rtMap[s.routeId] || [];
+    for (const r of candidates) {
+      if (used.has(r)) continue;
+      if (Math.abs(r.t - s.t) < 8*60) {
+        used.add(r);
+        return { ...s, t: r.t, delayMin: r.delayMin, gps: true,
+                 minsAway: r.minsAway, source: 'combined' };
+      }
+    }
+    const isGps = s.tripId ? activeTrips.has(s.tripId) : false;
+    return { ...s, gps: isGps };
+  });
+
+  for (const r of rt) {
+    if (!used.has(r)) results.push(r);
+  }
+
+  results.sort((a, b) => a.t - b.t);
+  const seen = new Set();
+  return results.filter(x => {
+    const k = x.routeId+'_'+x.minsAway;
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  });
+}
+
+// ═══════════════════════════════════════════════
+// DISPATCHER
+// ═══════════════════════════════════════════════
 async function getArrivals(stopId, force) {
   if (muoviApiKey) {
     try {
       return await getMuoviArrivals(stopId);
     } catch(e) {
       console.warn('muovi.roma.it fallback:', e.message);
-      if (e.message.includes('valida') || e.message.includes('scaduta')) {
-        muoviSession = null;
-      }
+      if (e.message.includes('valida') || e.message.includes('scaduta')) muoviSession = null;
     }
   }
   return await getCombinedArrivals(stopId, force);
@@ -947,8 +960,8 @@ async function getArrivals(stopId, force) {
 // RENDER
 // ═══════════════════════════════════════════════
 function renderArrivalsHtml(arrivals) {
-  const src = arrivals.length ? arrivals[0].source : null;
   const hasCombined = arrivals.some(a => a.source === 'combined' || a.source === 'schedule');
+  const src = arrivals.length ? arrivals[0].source : null;
   const srcLabel = src === 'muovi'
     ? '📡 muovi.roma.it (GPS + orario)'
     : hasCombined
@@ -957,7 +970,7 @@ function renderArrivalsHtml(arrivals) {
 
   if (!arrivals.length) {
     const hint = !muoviApiKey
-      ? `<p style="font-size:12px;margin-top:10px;color:var(--muted)">Per vedere tutti gli autobus (inclusi quelli in orario) configura la <strong>chiave API</strong> in Impostazioni.</p>`
+      ? `<p style="font-size:12px;margin-top:10px;color:var(--muted)">Per vedere tutti gli autobus configura la <strong>chiave API</strong> in Impostazioni.</p>`
       : '';
     return `<div class="no-arr">🚌 Nessun autobus nei prossimi 90 minuti${hint}</div>`;
   }
@@ -1032,25 +1045,19 @@ function renderFavs() {
 async function openSheet(stopId, stopName) {
   sheetStopId = stopId;
   sheetStopName = stopName;
-
   document.getElementById('sheet-name').textContent = stopName;
   document.getElementById('sheet-code').textContent = `Codice fermata: ${stopId}`;
   updateSheetFavBtn();
-
   document.getElementById('sheet-body').innerHTML =
     `<div class="loading"><div class="spinner"></div><p>Caricamento arrivi...</p></div>`;
   document.getElementById('arr-overlay').classList.add('on');
-
   try {
     const arrivals = await getArrivals(stopId);
     document.getElementById('sheet-body').innerHTML =
       `<div class="arr-list">${renderArrivalsHtml(arrivals)}</div>`;
   } catch(e) {
     document.getElementById('sheet-body').innerHTML =
-      `<div style="padding:16px">
-        <div class="err-box">⚠️ ${esc(e.message.replace(/\n/g,'<br>'))}<br><br>
-        <small>Verifica la connessione e riprova, oppure prova su una rete diversa.</small></div>
-      </div>`;
+      `<div style="padding:16px"><div class="err-box">⚠️ ${esc(e.message.replace(/\n/g,'<br>'))}</div></div>`;
   }
 }
 
@@ -1058,7 +1065,6 @@ async function refreshSheet() {
   if (!sheetStopId) return;
   document.getElementById('sheet-body').innerHTML =
     `<div class="loading"><div class="spinner"></div><p>Aggiornamento...</p></div>`;
-  feedBuf = null; feedTs = 0; // force refresh
   try {
     const arrivals = await getArrivals(sheetStopId, true);
     document.getElementById('sheet-body').innerHTML =
@@ -1089,8 +1095,7 @@ function toggleFav() {
   if (!sheetStopId) return;
   if (isFav(sheetStopId)) {
     favs = favs.filter(f => f.id !== sheetStopId);
-    saveFavs();
-    renderFavs();
+    saveFavs(); renderFavs();
     toast('Fermata rimossa dai preferiti');
     updateSheetFavBtn();
   } else {
@@ -1108,24 +1113,20 @@ async function searchStop() {
   if (!stopId) { toast('Inserisci un codice fermata'); return; }
 
   const out = document.getElementById('search-out');
-  out.innerHTML = `<div class="loading"><div class="spinner"></div><p>Ricerca per fermata <strong>${esc(stopId)}</strong>...</p></div>`;
+  out.innerHTML = `<div class="loading"><div class="spinner"></div><p>Ricerca fermata <strong>${esc(stopId)}</strong>...</p></div>`;
 
   try {
     const arrivals = await getArrivals(stopId);
     const name = getFavName(stopId) || `Fermata ${stopId}`;
     const saved = isFav(stopId);
 
-    // Info box se 0 risultati
     let infoHtml = '';
     if (arrivals.length === 0 && !muoviApiKey) {
       infoHtml = `<div style="margin:10px 14px;font-size:12px;background:#e8f4fd;border-left:3px solid #2196F3;padding:10px;border-radius:6px;line-height:1.5">
         ℹ️ <strong>Nessun bus con ritardo rilevato.</strong><br>
-        I bus di questa fermata sono probabilmente in orario. Il feed GTFS-RT include solo i bus con GPS attivo e ritardo.<br>
-        <strong>Configura una chiave API in <a href="#" onclick="goPage('settings');return false" style="color:var(--red)">Impostazioni</a></strong> per vedere tutti gli autobus.
+        I bus di questa fermata sono probabilmente in orario. Configura una <a href="#" onclick="goPage('settings');return false" style="color:var(--red)">chiave API</a> per vedere tutti gli autobus.
       </div>`;
     }
-
-    const arrHtml = `<div class="arr-list">${renderArrivalsHtml(arrivals)}</div>`;
 
     out.innerHTML = `
     <div class="stop-card">
@@ -1145,7 +1146,7 @@ async function searchStop() {
         </div>
       </div>
       ${infoHtml}
-      ${arrHtml}
+      <div class="arr-list">${renderArrivalsHtml(arrivals)}</div>
     </div>`;
 
   } catch(e) {
@@ -1182,14 +1183,11 @@ function closeDlgBg(e) {
 function confirmDlg() {
   const name = document.getElementById('dlg-input').value.trim();
   if (!name) { toast('Inserisci un nome'); return; }
-
   if (dlgMode === 'addfav') {
     favs.push({ id: dlgStopId, name });
-    saveFavs();
-    renderFavs();
+    saveFavs(); renderFavs();
     toast('✓ Fermata salvata nei preferiti!');
     updateSheetFavBtn();
-    // Refresh heart icon in search results
     const stopInput = document.getElementById('stop-input').value.trim();
     if (stopInput === dlgStopId) searchStop();
   } else if (dlgMode === 'rename') {
@@ -1239,7 +1237,7 @@ function initSettingsPage() {
     stat.textContent = '✓ Chiave API configurata';
   } else {
     stat.className = 'key-status bad';
-    stat.textContent = 'Nessuna chiave configurata — viene usato il feed GTFS-RT (limitato)';
+    stat.textContent = 'Nessuna chiave configurata — viene usato orario GTFS + GPS';
   }
 }
 
@@ -1247,19 +1245,17 @@ function saveApiKey() {
   const key = document.getElementById('settings-key-input').value.trim();
   const stat = document.getElementById('key-status');
   if (!key) {
-    muoviApiKey = null;
-    muoviSession = null;
+    muoviApiKey = null; muoviSession = null;
     localStorage.removeItem('atac_muovi_key');
     stat.className = 'key-status bad';
     stat.textContent = 'Chiave rimossa';
     toast('Chiave API rimossa');
     return;
   }
-  muoviApiKey = key;
-  muoviSession = null; // forza nuova autenticazione
+  muoviApiKey = key; muoviSession = null;
   localStorage.setItem('atac_muovi_key', key);
   stat.className = 'key-status ok';
-  stat.textContent = '✓ Chiave salvata — verrà usata al prossimo aggiornamento';
+  stat.textContent = '✓ Chiave salvata';
   toast('✓ Chiave API salvata');
 }
 
@@ -1268,7 +1264,8 @@ function saveApiKey() {
 // ═══════════════════════════════════════════════
 async function refreshAll() {
   feedBuf = null; feedTs = 0;
-  muoviSession = null; // forza nuova sessione muovi
+  vpCache = null; vpCacheTs = 0;
+  muoviSession = null;
   const btn = document.getElementById('refresh-all-btn');
   btn.textContent = '...';
   try {
