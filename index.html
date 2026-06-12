@@ -809,7 +809,7 @@ async function searchStop() {
 
     let debugHtml = '';
     if (arrivals.length === 0) {
-      const { matching, total, entities, bufSize, sample } = await sampleStopIds(stopId);
+      const { matching, total, entities, bufSize, sample, stuCount, rawStu } = await sampleStopIds(stopId);
       debugHtml = `<div class="info-box" style="margin:12px 14px;font-size:11px">
         🔍 <strong>Debug:</strong> ${bufSize} byte · ${entities} trip · ${stuCount} stop_time_update · ${total} stop_id unici<br><br>
         ${matching.length ? `Codici simili a "<strong>${esc(stopId)}</strong>": ${matching.map(id=>`<code style="background:#eee;padding:1px 4px;border-radius:3px">${esc(id)}</code>`).join(' ')}` : `<em>Nessun codice simile trovato.</em>`}
