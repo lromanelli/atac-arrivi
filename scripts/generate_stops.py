@@ -85,7 +85,7 @@ def main():
         print(f"Fermate nel GTFS: {len(stop_name)}")
 
         # ── 5. Stop times → accumula per fermata ─────────────────────────
-        # Formato interno: (secondi_dalla_mezzanotte, route_name, "HH:MM", headsign)
+        # Formato interno: (secondi_dalla_mezzanotte, route_name, "HH:MM", headsign, trip_id)
         stops: dict[str, list] = {}
         processed = 0
 
@@ -105,7 +105,7 @@ def main():
                     stops[sid] = []
                 # Salva HH:MM (i secondi servono solo per l'ordinamento)
                 hhmm = dep_clean[:5]
-                stops[sid].append((secs, rname, hhmm, head))
+                stops[sid].append((secs, rname, hhmm, head, tid))
                 processed += 1
                 if processed % 1_000_000 == 0:
                     print(f"  {processed:,} stop_times elaborati...")
@@ -120,7 +120,7 @@ def main():
         out = {
             'date': today,
             'name': stop_name.get(sid, ''),
-            'deps': [[r, t, h] for (_, r, t, h) in deps]
+            'deps': [[r, t, h, tid] for (_, r, t, h, tid) in deps]
         }
         with open(f'data/stops/{sid}.json', 'w', encoding='utf-8') as fp:
             json.dump(out, fp, ensure_ascii=False, separators=(',', ':'))
