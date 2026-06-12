@@ -455,7 +455,7 @@ const PROTO_JSON = {
         TripUpdate: {
           fields: {
             trip:           { rule: "required", type: "TripDescriptor", id: 1 },
-            stopTimeUpdate: { rule: "repeated", type: "TripUpdate.StopTimeUpdate", id: 2 },
+            stopTimeUpdate: { rule: "repeated", type: "StopTimeUpdate", id: 2 },
             vehicle:        { type: "VehicleDescriptor", id: 3 },
             timestamp:      { type: "uint64", id: 4 }
           },
@@ -470,8 +470,8 @@ const PROTO_JSON = {
             StopTimeUpdate: {
               fields: {
                 stopSequence:         { type: "uint32", id: 1 },
-                arrival:              { type: "TripUpdate.StopTimeEvent", id: 2 },
-                departure:            { type: "TripUpdate.StopTimeEvent", id: 3 },
+                arrival:              { type: "StopTimeEvent", id: 2 },
+                departure:            { type: "StopTimeEvent", id: 3 },
                 stopId:               { type: "string", id: 4 },
                 scheduleRelationship: { type: "uint32", id: 5 }
               }
