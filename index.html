@@ -592,6 +592,7 @@ const VP_FEED_URL = 'https://romamobilita.it/sites/default/files/rome_rtgtfs_veh
 const DATA_BASE   = '/atac-arrivi/data/stops/';
 
 const PROXIES = [
+  { name: 'myworker',      mk: url => `https://floral-forest-4925.luigi-romanelli.workers.dev/?url=${encodeURIComponent(url)}` },
   { name: 'corsproxy.io',  mk: url => `https://corsproxy.io/?${encodeURIComponent(url)}` },
   { name: 'allorigins',    mk: url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}` },
   { name: 'thingproxy',    mk: url => `https://thingproxy.freeboard.io/fetch/${url}` },
