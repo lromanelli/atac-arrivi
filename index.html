@@ -447,10 +447,6 @@ message FeedEntity {
   optional TripUpdate trip_update = 5;
 }
 message TripUpdate {
-  required TripDescriptor trip = 1;
-  optional VehicleDescriptor vehicle = 3;
-  repeated StopTimeUpdate stop_time_update = 2;
-  optional uint64 timestamp = 4;
   message StopTimeEvent {
     optional int32 delay = 1;
     optional int64 time = 2;
@@ -468,6 +464,10 @@ message TripUpdate {
     }
     optional ScheduleRelationship schedule_relationship = 5;
   }
+  required TripDescriptor trip = 1;
+  repeated StopTimeUpdate stop_time_update = 2;
+  optional VehicleDescriptor vehicle = 3;
+  optional uint64 timestamp = 4;
 }
 message TripDescriptor {
   optional string trip_id = 1;
