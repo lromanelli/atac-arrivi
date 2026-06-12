@@ -7,6 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="ATAC Arrivi">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <title>ATAC Arrivi</title>
 <style>
 :root {
@@ -315,6 +316,41 @@ html, body {
 }
 .toast.on { opacity: 1; }
 
+/* ─── MAP MODAL ─── */
+.map-overlay {
+  position: fixed; inset: 0; z-index: 300;
+  background: rgba(0,0,0,.5);
+  display: flex; align-items: flex-end;
+  opacity: 0; pointer-events: none; transition: opacity .25s;
+}
+.map-overlay.on { opacity: 1; pointer-events: all; }
+.map-modal {
+  width: 100%; height: 88vh;
+  background: #fff; border-radius: 16px 16px 0 0;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.map-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; background: var(--red); color: #fff; flex-shrink: 0;
+}
+.map-hdr span { font-weight: 700; font-size: 15px; }
+.map-close {
+  background: none; border: none; color: #fff;
+  font-size: 22px; line-height: 1; cursor: pointer; padding: 0 4px;
+}
+#map-el { flex: 1; min-height: 0; }
+.map-status {
+  padding: 6px 14px; font-size: 11px; color: var(--muted);
+  background: #f8f8f8; border-top: 1px solid var(--border);
+  min-height: 26px; flex-shrink: 0;
+}
+.btn-map {
+  flex: 1; padding: 12px; border: 2px solid var(--gps-color);
+  background: var(--gps-bg); border-radius: 10px;
+  font-size: 14px; font-weight: 600;
+  cursor: pointer; font-family: inherit; color: var(--gps-color);
+}
+
 /* ─── INFO BOX ─── */
 .info-box {
   background: #fffbea; border: 1px solid #ffe08a;
@@ -468,7 +504,8 @@ html, body {
     </div>
     <div class="sheet-foot">
       <button class="btn-sec" onclick="closeSheet()">Chiudi</button>
-      <button class="btn-save" id="sheet-fav-btn" onclick="toggleFav()">⭐ Salva fermata</button>
+      <button class="btn-map" onclick="openMap()">🗺️ Mappa</button>
+      <button class="btn-save" id="sheet-fav-btn" onclick="toggleFav()">⭐ Salva</button>
     </div>
   </div>
 </div>
@@ -486,9 +523,22 @@ html, body {
   </div>
 </div>
 
+<!-- MAP MODAL -->
+<div class="map-overlay" id="map-overlay" onclick="maybeCloseMap(event)">
+  <div class="map-modal">
+    <div class="map-hdr">
+      <span id="map-title">Mappa bus</span>
+      <button class="map-close" onclick="closeMap()">✕</button>
+    </div>
+    <div id="map-el"></div>
+    <div id="map-status" class="map-status">Caricamento...</div>
+  </div>
+</div>
+
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 // ══════════════════════════════════════════════
 // PARSER BINARIO PROTOBUF
@@ -523,6 +573,11 @@ class PBReader {
     return result;
   }
   str(len) { return new TextDecoder().decode(this.b.subarray(this.pos, this.pos += len)); }
+  float32() {
+    const view = new DataView(this.b.buffer, this.b.byteOffset + this.pos, 4);
+    this.pos += 4;
+    return view.getFloat32(0, true);
+  }
   skip(wt) {
     if      (wt === 0) this.uint();
     else if (wt === 1) this.pos += 8;
@@ -609,6 +664,7 @@ let feedBuf = null, feedTs = 0;
 let vpCache = null, vpCacheTs = 0;
 let muoviSession = null, muoviSessionTs = 0;
 let sheetStopId = null, sheetStopName = null;
+let leafletMap = null, mapRefreshInterval = null, mapMarkers = [];
 let dlgMode = null, dlgStopId = null;
 
 // ═══════════════════════════════════════════════
@@ -682,6 +738,62 @@ async function getActiveTrips(force) {
   } catch(e) {
     console.warn('vehicle_positions non disponibile:', e.message);
     return new Set();
+  }
+}
+
+// ═══════════════════════════════════════════════
+// VEHICLE POSITIONS → mappa trip_id → {lat, lon, routeId}
+// ═══════════════════════════════════════════════
+const _vpPosCache = { data: null, ts: 0 };
+async function getVehiclePositions(force) {
+  if (!force && _vpPosCache.data && Date.now() - _vpPosCache.ts < 60000) return _vpPosCache.data;
+  try {
+    const cacheRef = { buf: null, ts: 0 };
+    const buf = await fetchPb(VP_FEED_URL, force, cacheRef);
+    const r = new PBReader(buf);
+    const positions = new Map();
+    while (!r.done()) {
+      const [f, wt] = r.tag();
+      if (f !== 2 || wt !== 2) { r.skip(wt); continue; }
+      const elen = r.uint();
+      const entity = r.sub(elen); r.pos += elen;
+      while (!entity.done()) {
+        const [ef, ewt] = entity.tag();
+        if (ef === 4 && ewt === 2) {
+          const vplen = entity.uint();
+          const vp = entity.sub(vplen); entity.pos += vplen;
+          let tripId = null, routeId = null, lat = null, lon = null;
+          while (!vp.done()) {
+            const [vf, vwt] = vp.tag();
+            if (vf === 1 && vwt === 2) {
+              const tlen = vp.uint(); const td = vp.sub(tlen); vp.pos += tlen;
+              while (!td.done()) {
+                const [tf, twt] = td.tag();
+                if (tf === 1 && twt === 2) { const l = td.uint(); tripId = td.str(l); }
+                else if (tf === 5 && twt === 2) { const l = td.uint(); routeId = td.str(l); }
+                else td.skip(twt);
+              }
+            } else if (vf === 3 && vwt === 2) {
+              const plen = vp.uint(); const pos = vp.sub(plen); vp.pos += plen;
+              while (!pos.done()) {
+                const [pf, pwt] = pos.tag();
+                if (pf === 1 && pwt === 5) lat = pos.float32();
+                else if (pf === 2 && pwt === 5) lon = pos.float32();
+                else pos.skip(pwt);
+              }
+            } else vp.skip(vwt);
+          }
+          if (tripId && lat !== null && lon !== null) {
+            positions.set(tripId, { lat, lon, routeId });
+          }
+        } else entity.skip(ewt);
+      }
+    }
+    _vpPosCache.data = positions; _vpPosCache.ts = Date.now();
+    return positions;
+  } catch(e) {
+    console.warn('getVehiclePositions error:', e.message);
+    return new Map();
   }
 }
 
@@ -1213,6 +1325,102 @@ function saveFavs() { localStorage.setItem('atac_favs', JSON.stringify(favs)); }
 function removeFav(id) {
   favs = favs.filter(f => f.id !== id);
   saveFavs(); renderFavs(); toast('Fermata rimossa');
+}
+
+// ═══════════════════════════════════════════════
+// MAP
+// ═══════════════════════════════════════════════
+async function openMap() {
+  if (!sheetStopId) return;
+  document.getElementById('map-title').textContent = sheetStopName || `Fermata ${sheetStopId}`;
+  document.getElementById('map-overlay').classList.add('on');
+  document.getElementById('map-status').textContent = 'Caricamento...';
+
+  await new Promise(r => setTimeout(r, 60));
+
+  if (!leafletMap) {
+    leafletMap = L.map('map-el').setView([41.9028, 12.4964], 14);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19
+    }).addTo(leafletMap);
+  }
+  leafletMap.invalidateSize();
+  await refreshMapMarkers();
+
+  if (mapRefreshInterval) clearInterval(mapRefreshInterval);
+  mapRefreshInterval = setInterval(refreshMapMarkers, 60000);
+}
+
+async function refreshMapMarkers() {
+  if (!sheetStopId || !leafletMap) return;
+  try {
+    const [stopData, positions] = await Promise.all([
+      getScheduleData(sheetStopId),
+      getVehiclePositions(true)
+    ]);
+
+    // Remove old bus markers (keep tile layer)
+    for (const m of mapMarkers) leafletMap.removeLayer(m);
+    mapMarkers = [];
+
+    // Stop marker
+    const stopLat = stopData.lat, stopLon = stopData.lon;
+    if (stopLat && stopLon) {
+      const stopIcon = L.divIcon({
+        html: `<div style="background:var(--red);color:#fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 2px 6px rgba(0,0,0,.4)">🚏</div>`,
+        className: '', iconSize: [30, 30], iconAnchor: [15, 15]
+      });
+      const sm = L.marker([stopLat, stopLon], { icon: stopIcon, zIndexOffset: 1000 })
+        .addTo(leafletMap)
+        .bindPopup(`<b>${sheetStopName}</b><br>Fermata ${sheetStopId}`);
+      mapMarkers.push(sm);
+      leafletMap.setView([stopLat, stopLon], 15);
+    }
+
+    // Get trip_ids for this stop
+    const stopTripIds = new Set(stopData.deps.map(d => d[3]).filter(Boolean));
+
+    // Bus markers
+    let busCount = 0;
+    for (const [tripId, vp] of positions) {
+      if (!stopTripIds.has(tripId)) continue;
+      if (vp.lat < 41 || vp.lat > 42.5 || vp.lon < 11.5 || vp.lon > 13) continue; // sanity
+      const route = vp.routeId || routeFromTrip(tripId) || '?';
+      const busIcon = L.divIcon({
+        html: `<div style="background:#1a8a42;color:#fff;border-radius:6px;padding:2px 6px;font-size:11px;font-weight:700;box-shadow:0 2px 4px rgba(0,0,0,.35);white-space:nowrap">${esc(route)}</div>`,
+        className: '', iconSize: null, iconAnchor: [0, 10]
+      });
+      const bm = L.marker([vp.lat, vp.lon], { icon: busIcon })
+        .addTo(leafletMap)
+        .bindPopup(`Linea ${route}`);
+      mapMarkers.push(bm);
+      busCount++;
+    }
+
+    if (!stopLat && busCount > 0) {
+      const group = L.featureGroup(mapMarkers);
+      leafletMap.fitBounds(group.getBounds().pad(0.3));
+    }
+
+    const upd = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    document.getElementById('map-status').textContent = busCount > 0
+      ? `${busCount} bus tracciati · aggiornato ${upd}`
+      : `Nessun bus GPS disponibile ora · ${upd}`;
+
+    leafletMap.invalidateSize();
+  } catch(e) {
+    document.getElementById('map-status').textContent = `Errore: ${e.message}`;
+  }
+}
+
+function closeMap() {
+  document.getElementById('map-overlay').classList.remove('on');
+  if (mapRefreshInterval) { clearInterval(mapRefreshInterval); mapRefreshInterval = null; }
+}
+
+function maybeCloseMap(e) {
+  if (e.target === document.getElementById('map-overlay')) closeMap();
 }
 
 // ═══════════════════════════════════════════════
