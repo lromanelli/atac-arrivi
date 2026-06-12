@@ -785,6 +785,36 @@ async function searchStop() {
     const name = getFavName(stopId) || `Fermata ${stopId}`;
     const saved = isFav(stopId);
 
+    // Diagnostica minima se 0 risultati
+    let infoHtml = '';
+    if (arrivals.length === 0 && feedBuf) {
+      try {
+        const root2 = await getProto();
+        const FM2 = root2.lookupType('transit_realtime.FeedMessage');
+        const msg2 = FM2.decode(new Uint8Array(feedBuf));
+        const sampleIds = [];
+        let stuTotal = 0;
+        for (const ent of (msg2.entity || [])) {
+          const tu = ent.tripUpdate; if (!tu) continue;
+          for (const stu of (tu.stopTimeUpdate || [])) {
+            stuTotal++;
+            if (stu.stopId && sampleIds.length < 6 && !sampleIds.includes(stu.stopId)) sampleIds.push(stu.stopId);
+          }
+          if (stuTotal > 500) break;
+        }
+        if (stuTotal === 0) {
+          infoHtml = `<div class="info-box" style="margin:10px 14px;font-size:12px;background:#fff3cd;border-left:3px solid #f0a500;padding:10px">⚠️ Feed scaricato (${feedBuf.byteLength} byte, ${(msg2.entity||[]).length} trip) ma nessun <code>stop_time_update</code> trovato. Problema nel parsing protobuf.</div>`;
+        } else {
+          const similar = sampleIds.filter(id => id.includes(stopId.substring(0,3)));
+          infoHtml = `<div class="info-box" style="margin:10px 14px;font-size:12px;background:#e8f4fd;border-left:3px solid #2196F3;padding:10px">
+            ℹ️ <strong>${stuTotal}+</strong> orari nel feed, ma nessuno per "<strong>${esc(stopId)}</strong>".<br>
+            ${similar.length ? `Codici simili: <strong>${similar.join(', ')}</strong><br>` : ''}
+            Esempi codici nel feed: <strong>${sampleIds.join(', ')}</strong>
+          </div>`;
+        }
+      } catch(de) { /* ignora errori diagnostica */ }
+    }
+
     const arrHtml = `<div class="arr-list">${renderArrivalsHtml(arrivals)}</div>`;
 
     out.innerHTML = `
@@ -804,6 +834,7 @@ async function searchStop() {
           </button>
         </div>
       </div>
+      ${infoHtml}
       ${arrHtml}
     </div>`;
 
