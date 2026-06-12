@@ -577,12 +577,15 @@ async function sampleStopIds(prefix) {
     }
     if (ids.size > 2000) break;
   }
-  // Campione raw del primo StopTimeUpdate
+  // Campione raw del primo StopTimeUpdate + raw TripUpdate
   let rawStu = null;
+  let rawTu = null;
   let stuCount = 0;
   for (const ent of (msg.entity || [])) {
     const tu = ent.tripUpdate;
-    if (!tu || !tu.stopTimeUpdate || !tu.stopTimeUpdate.length) continue;
+    if (!tu) continue;
+    if (!rawTu) rawTu = JSON.stringify(tu).substring(0, 600);
+    if (!tu.stopTimeUpdate || !tu.stopTimeUpdate.length) continue;
     stuCount += tu.stopTimeUpdate.length;
     if (!rawStu) rawStu = JSON.stringify(tu.stopTimeUpdate[0]);
   }
@@ -814,7 +817,8 @@ async function searchStop() {
         🔍 <strong>Debug:</strong> ${bufSize} byte · ${entities} trip · ${stuCount} stop_time_update · ${total} stop_id unici<br><br>
         ${matching.length ? `Codici simili a "<strong>${esc(stopId)}</strong>": ${matching.map(id=>`<code style="background:#eee;padding:1px 4px;border-radius:3px">${esc(id)}</code>`).join(' ')}` : `<em>Nessun codice simile trovato.</em>`}
         ${sample.length ? `<br>Esempi dal feed: ${sample.map(id=>`<code style="background:#eee;padding:1px 4px;border-radius:3px">${esc(id)}</code>`).join(' ')}` : ''}
-        ${rawStu ? `<br><br>Primo StopTimeUpdate raw:<br><code style="word-break:break-all;background:#f5f5f5;display:block;padding:6px;border-radius:4px;font-size:10px">${esc(rawStu)}</code>` : `<br>⚠️ Nessuno StopTimeUpdate trovato nei trip.`}
+        ${rawTu ? `<br><br>Primo TripUpdate raw:<br><code style="word-break:break-all;background:#f5f5f5;display:block;padding:6px;border-radius:4px;font-size:10px">${esc(rawTu)}</code>` : ''}
+        ${rawStu ? `<br><br>Primo StopTimeUpdate:<br><code style="word-break:break-all;background:#f5f5f5;display:block;padding:6px;border-radius:4px;font-size:10px">${esc(rawStu)}</code>` : `<br>⚠️ Nessuno StopTimeUpdate trovato nei trip.`}
       </div>`;
     }
 
