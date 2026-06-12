@@ -8,7 +8,6 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="ATAC Arrivi">
 <title>ATAC Arrivi</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/protobufjs/7.2.5/protobuf.min.js"></script>
 <style>
 :root {
   --red: #cc1100;
@@ -427,76 +426,95 @@ html, body {
 
 <script>
 // ══════════════════════════════════════════════
-// SCHEMA GTFS-RT (JSON, evita bug forward ref)
+// PARSER BINARIO PROTOBUF (no dipendenze esterne)
 // ══════════════════════════════════════════════
-const PROTO_JSON = {
-  nested: {
-    transit_realtime: {
-      nested: {
-        FeedMessage: {
-          fields: {
-            header: { rule: "required", type: "FeedHeader", id: 1 },
-            entity: { rule: "repeated", type: "FeedEntity", id: 2 }
-          }
-        },
-        FeedHeader: {
-          fields: {
-            gtfsRealtimeVersion: { rule: "required", type: "string", id: 1 },
-            timestamp: { type: "uint64", id: 3 }
-          }
-        },
-        FeedEntity: {
-          fields: {
-            id: { rule: "required", type: "string", id: 1 },
-            isDeleted: { type: "bool", id: 2 },
-            tripUpdate: { type: "TripUpdate", id: 5 }
-          }
-        },
-        TripUpdate: {
-          fields: {
-            trip:           { rule: "required", type: "TripDescriptor", id: 1 },
-            stopTimeUpdate: { rule: "repeated", type: "StopTimeUpdate", id: 2 },
-            vehicle:        { type: "VehicleDescriptor", id: 3 },
-            timestamp:      { type: "uint64", id: 4 }
-          },
-          nested: {
-            StopTimeEvent: {
-              fields: {
-                delay:       { type: "int32", id: 1 },
-                time:        { type: "int64", id: 2 },
-                uncertainty: { type: "float", id: 3 }
-              }
-            },
-            StopTimeUpdate: {
-              fields: {
-                stopSequence:         { type: "uint32", id: 1 },
-                arrival:              { type: "StopTimeEvent", id: 2 },
-                departure:            { type: "StopTimeEvent", id: 3 },
-                stopId:               { type: "string", id: 4 },
-                scheduleRelationship: { type: "uint32", id: 5 }
-              }
-            }
-          }
-        },
-        TripDescriptor: {
-          fields: {
-            tripId:    { type: "string", id: 1 },
-            startTime: { type: "string", id: 2 },
-            startDate: { type: "string", id: 3 },
-            routeId:   { type: "string", id: 5 }
-          }
-        },
-        VehicleDescriptor: {
-          fields: {
-            id:           { type: "string", id: 1 },
-            label:        { type: "string", id: 2 },
-            licensePlate: { type: "string", id: 3 }
-          }
-        }
-      }
-    }
+class PBReader {
+  constructor(buf, start, end) {
+    this.b = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+    this.pos = start || 0;
+    this.end = end !== undefined ? end : this.b.length;
   }
-};
+  done() { return this.pos >= this.end; }
+  sub(len) { return new PBReader(this.b, this.pos, this.pos + len); }
+  tag() { const t = this.uint(); return [t >>> 3, t & 7]; }
+  uint() {
+    let v = 0, s = 0, b;
+    do { b = this.b[this.pos++]; v |= (b & 0x7F) << s; s += 7; } while (b & 0x80);
+    return v >>> 0;
+  }
+  int32() {
+    let v = 0, s = 0, b;
+    do { b = this.b[this.pos++]; if (s < 32) v |= (b & 0x7F) << s; s += 7; } while (b & 0x80);
+    return v | 0;
+  }
+  int64() {
+    // usa float per evitare overflow JS a 32bit (preciso per timestamp unix)
+    let result = 0, shift = 0, b;
+    for (let i = 0; i < 10; i++) {
+      b = this.b[this.pos++];
+      result += (b & 0x7F) * Math.pow(2, shift);
+      shift += 7;
+      if (!(b & 0x80)) break;
+    }
+    return result;
+  }
+  str(len) { return new TextDecoder().decode(this.b.subarray(this.pos, this.pos += len)); }
+  skip(wt) {
+    if      (wt === 0) this.uint();
+    else if (wt === 1) this.pos += 8;
+    else if (wt === 2) this.pos += this.uint();
+    else if (wt === 5) this.pos += 4;
+  }
+}
+
+function parseEvent(r) {
+  const ev = { delay: 0, time: 0 };
+  while (!r.done()) {
+    const [f, wt] = r.tag();
+    if      (f === 1 && wt === 0) ev.delay = r.int32();
+    else if (f === 2 && wt === 0) ev.time  = r.int64();
+    else r.skip(wt);
+  }
+  return ev;
+}
+
+function parseTripUpdate(r) {
+  const tu = { routeId: '?', vehicleId: null, stus: [] };
+  while (!r.done()) {
+    const [f, wt] = r.tag();
+    if (f === 1 && wt === 2) {
+      // TripDescriptor
+      const len = r.uint(); const sub = r.sub(len); r.pos += len;
+      while (!sub.done()) {
+        const [sf, swt] = sub.tag();
+        if (sf === 5 && swt === 2) { const l = sub.uint(); tu.routeId = sub.str(l); }
+        else sub.skip(swt);
+      }
+    } else if (f === 2 && wt === 2) {
+      // StopTimeUpdate
+      const len = r.uint(); const sub = r.sub(len); r.pos += len;
+      const stu = { stopId: null, arrival: null, departure: null, schedRel: 0 };
+      while (!sub.done()) {
+        const [sf, swt] = sub.tag();
+        if      (sf === 2 && swt === 2) { const l = sub.uint(); stu.arrival   = parseEvent(sub.sub(l)); sub.pos += l; }
+        else if (sf === 3 && swt === 2) { const l = sub.uint(); stu.departure = parseEvent(sub.sub(l)); sub.pos += l; }
+        else if (sf === 4 && swt === 2) { const l = sub.uint(); stu.stopId    = sub.str(l); }
+        else if (sf === 5 && swt === 0) stu.schedRel = sub.uint();
+        else sub.skip(swt);
+      }
+      tu.stus.push(stu);
+    } else if (f === 3 && wt === 2) {
+      // VehicleDescriptor
+      const len = r.uint(); const sub = r.sub(len); r.pos += len;
+      while (!sub.done()) {
+        const [sf, swt] = sub.tag();
+        if (sf === 1 && swt === 2) { const l = sub.uint(); tu.vehicleId = sub.str(l); }
+        else sub.skip(swt);
+      }
+    } else r.skip(wt);
+  }
+  return tu;
+}
 
 // ═══════════════════════════════════════════════
 // CONFIG
@@ -514,7 +532,6 @@ const PROXIES = [
 // STATE
 // ═══════════════════════════════════════════════
 let favs = JSON.parse(localStorage.getItem('atac_favs') || '[]');
-let protoRoot = null;
 let feedBuf = null;
 let feedTs = 0;
 let sheetStopId = null;
@@ -522,14 +539,6 @@ let sheetStopName = null;
 let dlgMode = null;   // 'rename' | 'addfav'
 let dlgStopId = null;
 
-// ═══════════════════════════════════════════════
-// PROTO
-// ═══════════════════════════════════════════════
-async function getProto() {
-  if (protoRoot) return protoRoot;
-  protoRoot = protobuf.Root.fromJSON(PROTO_JSON);
-  return protoRoot;
-}
 
 // ═══════════════════════════════════════════════
 // FEED FETCH (con cache 60s e fallback proxy)
@@ -571,58 +580,43 @@ let lastWorkingProxy = null;
 // ═══════════════════════════════════════════════
 
 async function getArrivals(stopId, force) {
-  const [root, buf] = await Promise.all([getProto(), getFeed(force)]);
-  const FM = root.lookupType('transit_realtime.FeedMessage');
-  const msg = FM.decode(new Uint8Array(buf));
-
+  const buf = await getFeed(force);
+  const r = new PBReader(buf);
   const now = Math.floor(Date.now() / 1000);
   const results = [];
 
-  for (const ent of (msg.entity || [])) {
-    const tu = ent.tripUpdate;
+  while (!r.done()) {
+    const [f, wt] = r.tag();
+    if (f !== 2 || wt !== 2) { r.skip(wt); continue; }
+    // FeedEntity
+    const elen = r.uint();
+    const entity = r.sub(elen); r.pos += elen;
+    let tu = null;
+    while (!entity.done()) {
+      const [ef, ewt] = entity.tag();
+      if (ef === 5 && ewt === 2) {
+        const tulen = entity.uint();
+        tu = parseTripUpdate(entity.sub(tulen)); entity.pos += tulen;
+      } else entity.skip(ewt);
+    }
     if (!tu) continue;
-
-    // GPS detection: vehicle descriptor present = GPS tracked
-    const isGPS = !!(tu.vehicle && (tu.vehicle.id || tu.vehicle.label));
-
-    for (const stu of (tu.stopTimeUpdate || [])) {
+    for (const stu of tu.stus) {
       if (stu.stopId !== stopId) continue;
-      if (stu.scheduleRelationship === 1) continue; // SKIPPED
-
+      if (stu.schedRel === 1) continue;
       const ev = stu.departure || stu.arrival;
-      if (!ev) continue;
-
-      // Convert protobuf Long to number
-      let t = ev.time;
-      if (t && typeof t === 'object' && t.toNumber) t = t.toNumber();
-      else if (t) t = Number(t);
-      else continue;
-
-      if (t < now - 30 || t > now + 5400) continue; // finestra 90 min
-
-      const delayS = ev.delay;  // secondi (può essere null/0)
-      const delayMin = (delayS && delayS !== 0) ? Math.round(delayS / 60) : null;
-
-      // Se c'è delay valorizzato considera GPS anche senza vehicle descriptor
-      const gps = isGPS || (delayS !== undefined && delayS !== null && delayS !== 0);
-
-      results.push({
-        routeId: (tu.trip && tu.trip.routeId) || '?',
-        t, delayMin, gps,
-        minsAway: Math.round((t - now) / 60),
-      });
+      if (!ev || !ev.time) continue;
+      const t = ev.time;
+      if (t < now - 30 || t > now + 5400) continue;
+      const delayS = ev.delay || 0;
+      const delayMin = delayS ? Math.round(delayS / 60) : null;
+      const gps = !!tu.vehicleId || !!delayS;
+      results.push({ routeId: tu.routeId, t, delayMin, gps, minsAway: Math.round((t - now) / 60) });
     }
   }
 
   results.sort((a, b) => a.t - b.t);
-
-  // Deduplicazione: stessa linea nello stesso minuto
   const seen = new Set();
-  return results.filter(r => {
-    const k = r.routeId + '_' + r.minsAway;
-    if (seen.has(k)) return false;
-    seen.add(k); return true;
-  });
+  return results.filter(x => { const k = x.routeId+'_'+x.minsAway; if(seen.has(k))return false; seen.add(k); return true; });
 }
 
 // ═══════════════════════════════════════════════
@@ -789,27 +783,32 @@ async function searchStop() {
     let infoHtml = '';
     if (arrivals.length === 0 && feedBuf) {
       try {
-        const root2 = await getProto();
-        const FM2 = root2.lookupType('transit_realtime.FeedMessage');
-        const msg2 = FM2.decode(new Uint8Array(feedBuf));
-        const sampleIds = [];
-        let stuTotal = 0;
-        for (const ent of (msg2.entity || [])) {
-          const tu = ent.tripUpdate; if (!tu) continue;
-          for (const stu of (tu.stopTimeUpdate || [])) {
-            stuTotal++;
-            if (stu.stopId && sampleIds.length < 6 && !sampleIds.includes(stu.stopId)) sampleIds.push(stu.stopId);
+        const r2 = new PBReader(feedBuf);
+        const sampleIds = []; let stuTotal = 0;
+        outer: while (!r2.done()) {
+          const [f2, wt2] = r2.tag();
+          if (f2 !== 2 || wt2 !== 2) { r2.skip(wt2); continue; }
+          const elen2 = r2.uint(); const ent2 = r2.sub(elen2); r2.pos += elen2;
+          while (!ent2.done()) {
+            const [ef, ewt] = ent2.tag();
+            if (ef === 5 && ewt === 2) {
+              const tulen2 = ent2.uint(); const tu2 = parseTripUpdate(ent2.sub(tulen2)); ent2.pos += tulen2;
+              for (const s2 of tu2.stus) {
+                stuTotal++;
+                if (s2.stopId && sampleIds.length < 6 && !sampleIds.includes(s2.stopId)) sampleIds.push(s2.stopId);
+              }
+              if (stuTotal > 500) break outer;
+            } else ent2.skip(ewt);
           }
-          if (stuTotal > 500) break;
         }
         if (stuTotal === 0) {
-          infoHtml = `<div class="info-box" style="margin:10px 14px;font-size:12px;background:#fff3cd;border-left:3px solid #f0a500;padding:10px">⚠️ Feed scaricato (${feedBuf.byteLength} byte, ${(msg2.entity||[]).length} trip) ma nessun <code>stop_time_update</code> trovato. Problema nel parsing protobuf.</div>`;
+          infoHtml = `<div style="margin:10px 14px;font-size:12px;background:#fff3cd;border-left:3px solid #f0a500;padding:10px;border-radius:6px">⚠️ Feed scaricato (${feedBuf.byteLength} byte) ma 0 stop_time_update trovati.</div>`;
         } else {
-          const similar = sampleIds.filter(id => id.includes(stopId.substring(0,3)));
-          infoHtml = `<div class="info-box" style="margin:10px 14px;font-size:12px;background:#e8f4fd;border-left:3px solid #2196F3;padding:10px">
-            ℹ️ <strong>${stuTotal}+</strong> orari nel feed, ma nessuno per "<strong>${esc(stopId)}</strong>".<br>
-            ${similar.length ? `Codici simili: <strong>${similar.join(', ')}</strong><br>` : ''}
-            Esempi codici nel feed: <strong>${sampleIds.join(', ')}</strong>
+          const similar = sampleIds.filter(id => id.startsWith(stopId.substring(0,3)));
+          infoHtml = `<div style="margin:10px 14px;font-size:12px;background:#e8f4fd;border-left:3px solid #2196F3;padding:10px;border-radius:6px">
+            ℹ️ <strong>${stuTotal}+</strong> orari, nessuno per "<strong>${esc(stopId)}</strong>".<br>
+            ${similar.length ? `Simili: <strong>${similar.join(', ')}</strong><br>` : ''}
+            Esempi: <strong>${sampleIds.join(', ')}</strong>
           </div>`;
         }
       } catch(de) { /* ignora errori diagnostica */ }
@@ -955,20 +954,7 @@ function toast(msg, ms = 2500) {
 // INIT
 // ═══════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
-  if (typeof protobuf === 'undefined') {
-    document.querySelector('.content').innerHTML = `
-      <div class="err-box" style="margin:24px">
-        ⚠️ Libreria non caricata. Verifica la connessione internet e ricarica la pagina.
-      </div>`;
-    return;
-  }
-
   renderFavs();
-
-  // Pre-carica il proto in background
-  getProto().catch(() => {});
-
-  // Enter nel dialog
   document.getElementById('dlg-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') confirmDlg();
     if (e.key === 'Escape') closeDlg();
