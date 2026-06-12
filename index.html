@@ -322,6 +322,51 @@ html, body {
   font-size: 12px; color: #7a5c00; margin-bottom: 14px;
   line-height: 1.5;
 }
+
+/* ─── SETTINGS PAGE ─── */
+.settings-section {
+  background: var(--card); border-radius: 14px;
+  padding: 18px 16px; margin-bottom: 14px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.08);
+}
+.settings-section h2 {
+  font-size: 15px; font-weight: 800; margin-bottom: 4px;
+}
+.settings-section .s-desc {
+  font-size: 12px; color: var(--muted); margin-bottom: 14px; line-height: 1.5;
+}
+.settings-section label {
+  display: block; font-size: 12px; font-weight: 700;
+  color: var(--muted); text-transform: uppercase;
+  letter-spacing: .5px; margin-bottom: 6px;
+}
+.key-row { display: flex; gap: 8px; }
+.key-row input {
+  flex: 1; padding: 11px 14px;
+  border: 2px solid var(--border); border-radius: 10px;
+  font-size: 14px; outline: none; font-family: monospace;
+  transition: border-color .2s; color: var(--text);
+  min-width: 0;
+}
+.key-row input:focus { border-color: var(--red); }
+.key-status {
+  font-size: 12px; margin-top: 8px; min-height: 18px;
+}
+.key-status.ok  { color: var(--gps-color); }
+.key-status.bad { color: var(--red); }
+.settings-link {
+  display: inline-block; margin-top: 12px;
+  color: var(--red); font-size: 13px; font-weight: 600;
+  text-decoration: none;
+}
+.settings-link:active { opacity: .7; }
+
+.source-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 700;
+  padding: 2px 6px; border-radius: 4px;
+  background: #f0f0f2; color: var(--muted);
+}
 </style>
 </head>
 <body>
@@ -357,6 +402,29 @@ html, body {
     <div id="fav-list"></div>
   </div>
 
+  <!-- PAGE: IMPOSTAZIONI -->
+  <div class="page" id="pg-settings">
+    <div class="settings-section">
+      <h2>🔑 Chiave API muovi.roma.it</h2>
+      <p class="s-desc">Con una chiave gratuita puoi vedere <strong>tutti gli autobus</strong>, inclusi quelli in orario (non solo quelli in ritardo). La stessa fonte usata dai pannelli elettronici alle fermate.</p>
+      <label>API Key</label>
+      <div class="key-row">
+        <input type="password" id="settings-key-input" placeholder="Incolla qui la tua chiave API"
+          onkeydown="if(event.key==='Enter')saveApiKey()">
+        <button class="btn-primary" onclick="saveApiKey()">Salva</button>
+      </div>
+      <div class="key-status" id="key-status"></div>
+      <a class="settings-link" href="http://muovi.roma.it/dev/key" target="_blank" rel="noopener">
+        ➜ Registrati su muovi.roma.it per la chiave gratuita
+      </a>
+    </div>
+
+    <div class="settings-section">
+      <h2>ℹ️ Senza chiave API</h2>
+      <p class="s-desc">Vengono mostrati solo gli autobus con ritardo attivo rilevati via GPS (feed GTFS-RT di romamobilita.it). Le fermate con autobus in orario appaiono vuote.</p>
+    </div>
+  </div>
+
   <!-- PAGE: CERCA -->
   <div class="page" id="pg-search">
     <div class="search-card">
@@ -387,6 +455,12 @@ html, body {
       <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
     </svg>
     Cerca fermata
+  </button>
+  <button class="bnav-btn" id="nav-settings" onclick="goPage('settings')">
+    <svg viewBox="0 0 24 24" fill="currentColor">
+      <path d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.06-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96a7.006 7.006 0 00-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87a.48.48 0 00.12.61l2.03 1.58c-.04.3-.07.62-.07.94s.03.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.37 1.04.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.57 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.48.48 0 00-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+    </svg>
+    Impostazioni
   </button>
 </nav>
 
@@ -541,6 +615,7 @@ const PROXIES = [
 // STATE
 // ═══════════════════════════════════════════════
 let favs = JSON.parse(localStorage.getItem('atac_favs') || '[]');
+let muoviApiKey = localStorage.getItem('atac_muovi_key') || null;
 let feedBuf = null;
 let feedTs = 0;
 let muoviSession = null;
@@ -645,9 +720,10 @@ function parseXmlRpcVal(node) {
 }
 
 async function getMuoviSession(force) {
+  if (!muoviApiKey) throw new Error('Chiave API non configurata');
   if (!force && muoviSession && Date.now() - muoviSessionTs < 25 * 60000) return muoviSession;
-  const doc = await muoviPost(MUOVI_AUTH, xmlRpcReq('autenticazione.Accedi', '', ''));
-  if (doc.querySelector('fault')) throw new Error('Auth fallita');
+  const doc = await muoviPost(MUOVI_AUTH, xmlRpcReq('autenticazione.Accedi', muoviApiKey, ''));
+  if (doc.querySelector('fault')) throw new Error('Chiave API non valida o scaduta');
   const val = parseXmlRpcVal(doc.querySelector('params > param > value'));
   if (!val || typeof val !== 'string') throw new Error('Session non valida');
   muoviSession = val; muoviSessionTs = Date.now();
@@ -676,12 +752,134 @@ async function getMuoviArrivals(stopId) {
       routeId: a.linea || '?',
       t: now + mins * 60,
       delayMin: null,
-      gps: !a.non_monitorata,   // false = orario programmato
+      gps: !a.non_monitorata,   // non_monitorata=true → orario programmato
       minsAway: mins,
-      dest: a.destinazione || a.capolinea || ''
+      dest: a.destinazione || a.capolinea || '',
+      source: 'muovi'
     });
   }
   return results.sort((a, b) => a.minsAway - b.minsAway);
+}
+
+// ═══════════════════════════════════════════════
+// SCHEDULE DATA (da GitHub Pages /data/stops/)
+// ═══════════════════════════════════════════════
+const DATA_BASE = '/atac-arrivi/data/stops/';
+
+async function getScheduleData(stopId) {
+  // Formato data locale italiana → YYYYMMDD
+  const now = new Date();
+  const today = now.getFullYear().toString()
+    + String(now.getMonth()+1).padStart(2,'0')
+    + String(now.getDate()).padStart(2,'0');
+
+  // Cache in localStorage (invalidata automaticamente al cambio data)
+  const cacheKey = `sched_${stopId}_${today}`;
+  const cached = localStorage.getItem(cacheKey);
+  if (cached) {
+    try { return JSON.parse(cached); } catch(e) { /* cache corrotta, ricarica */ }
+  }
+
+  const resp = await fetch(`${DATA_BASE}${stopId}.json`);
+  if (!resp.ok) throw new Error(`Dati orari non trovati (${resp.status})`);
+  const data = await resp.json();
+
+  // Salva in cache (ignora errori di quota)
+  try {
+    // Pulisci cache vecchia per questo stop
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(`sched_${stopId}_`) && k !== cacheKey) {
+        localStorage.removeItem(k); break;
+      }
+    }
+    localStorage.setItem(cacheKey, JSON.stringify(data));
+  } catch(e) { /* localStorage pieno — non critico */ }
+
+  return data;
+}
+
+function timeStrToSecs(t) {
+  // Accetta "HH:MM" o "HH:MM:SS" (inclusi valori > 24 per corse notturne)
+  const p = t.split(':').map(Number);
+  return p[0]*3600 + p[1]*60 + (p[2]||0);
+}
+
+async function getScheduleArrivals(stopId) {
+  const data = await getScheduleData(stopId);
+  const now = new Date();
+  const nowSec = now.getHours()*3600 + now.getMinutes()*60 + now.getSeconds();
+  const epoch = Math.floor(Date.now()/1000);
+  const results = [];
+
+  for (const [route, time, dest] of data.deps) {
+    let diffSec = timeStrToSecs(time) - nowSec;
+    // Gestisci corse notturne che attraversano mezzanotte
+    if (diffSec < -7200) diffSec += 86400;
+    if (diffSec < -60 || diffSec > 5400) continue;  // finestra: -1 min … +90 min
+    results.push({
+      routeId: route,
+      t: epoch + diffSec,
+      delayMin: null,
+      gps: false,
+      minsAway: Math.round(diffSec / 60),
+      dest: dest || '',
+      source: 'schedule'
+    });
+  }
+  return results;
+}
+
+async function getCombinedArrivals(stopId, force) {
+  // Lancia schedule e GTFS-RT in parallelo
+  const [schedRes, rtRes] = await Promise.allSettled([
+    getScheduleArrivals(stopId),
+    getGtfsArrivals(stopId, force)
+  ]);
+
+  const sched = schedRes.status === 'fulfilled' ? schedRes.value : [];
+  const rt    = rtRes.status   === 'fulfilled' ? rtRes.value   : [];
+
+  // Se schedule non disponibile (primo avvio prima del deploy) usa solo RT
+  if (!sched.length) {
+    return rt.length ? rt : (() => { throw schedRes.reason || new Error('Dati non ancora disponibili'); })();
+  }
+
+  // Mappa RT per routeId → [arrivi]
+  const rtMap = {};
+  for (const a of rt) {
+    if (!rtMap[a.routeId]) rtMap[a.routeId] = [];
+    rtMap[a.routeId].push(a);
+  }
+
+  const used = new Set();
+  const results = sched.map(s => {
+    const candidates = rtMap[s.routeId] || [];
+    for (const r of candidates) {
+      if (used.has(r)) continue;
+      if (Math.abs(r.t - s.t) < 8*60) {  // stesso viaggio se entro 8 min
+        used.add(r);
+        return { ...s, t: r.t, delayMin: r.delayMin, gps: r.gps,
+                 minsAway: r.minsAway, source: 'combined' };
+      }
+    }
+    return s;
+  });
+
+  // Aggiungi RT non abbinati (es. bus extra non in orario)
+  for (const r of rt) {
+    if (!used.has(r)) results.push(r);
+  }
+
+  results.sort((a, b) => a.t - b.t);
+
+  // Deduplicazione
+  const seen = new Set();
+  return results.filter(x => {
+    const k = x.routeId+'_'+x.minsAway;
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  });
 }
 
 // ═══════════════════════════════════════════════
@@ -721,7 +919,7 @@ async function getGtfsArrivals(stopId, force) {
       const gps = !!tu.vehicleId || !!delayS;
       // routeId dal feed, o estratto dal tripId, o '?'
       const routeId = tu.routeId || routeFromTrip(tu.tripId) || '?';
-      results.push({ routeId, t, delayMin, gps, minsAway: Math.round((t - now) / 60) });
+      results.push({ routeId, t, delayMin, gps, minsAway: Math.round((t - now) / 60), source: 'gtfs' });
     }
   }
 
@@ -730,21 +928,38 @@ async function getGtfsArrivals(stopId, force) {
   return results.filter(x => { const k = x.routeId+'_'+x.minsAway; if(seen.has(k))return false; seen.add(k); return true; });
 }
 
-// Dispatcher: prova muovi.roma.it, fallback su GTFS-RT
+// Dispatcher: priorità muovi.roma.it > schedule+RT combinati > solo RT
 async function getArrivals(stopId, force) {
-  try {
-    return await getMuoviArrivals(stopId);
-  } catch(e) {
-    return await getGtfsArrivals(stopId, force);
+  if (muoviApiKey) {
+    try {
+      return await getMuoviArrivals(stopId);
+    } catch(e) {
+      console.warn('muovi.roma.it fallback:', e.message);
+      if (e.message.includes('valida') || e.message.includes('scaduta')) {
+        muoviSession = null;
+      }
+    }
   }
+  return await getCombinedArrivals(stopId, force);
 }
 
 // ═══════════════════════════════════════════════
 // RENDER
 // ═══════════════════════════════════════════════
 function renderArrivalsHtml(arrivals) {
+  const src = arrivals.length ? arrivals[0].source : null;
+  const hasCombined = arrivals.some(a => a.source === 'combined' || a.source === 'schedule');
+  const srcLabel = src === 'muovi'
+    ? '📡 muovi.roma.it (GPS + orario)'
+    : hasCombined
+      ? '📅 Orario GTFS + 📡 GPS in tempo reale'
+      : '🔶 GTFS-RT · solo bus con ritardo attivo';
+
   if (!arrivals.length) {
-    return `<div class="no-arr">🚌 Nessun autobus nei prossimi 90 minuti</div>`;
+    const hint = !muoviApiKey
+      ? `<p style="font-size:12px;margin-top:10px;color:var(--muted)">Per vedere tutti gli autobus (inclusi quelli in orario) configura la <strong>chiave API</strong> in Impostazioni.</p>`
+      : '';
+    return `<div class="no-arr">🚌 Nessun autobus nei prossimi 90 minuti${hint}</div>`;
   }
 
   let html = '';
@@ -775,7 +990,7 @@ function renderArrivalsHtml(arrivals) {
   }
 
   const upd = new Date().toLocaleTimeString('it-IT', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
-  html += `<div class="last-upd">Dati aggiornati alle ${upd} · feed ogni ~60s</div>`;
+  html += `<div class="last-upd">Aggiornato ${upd} · ${srcLabel}</div>`;
   return html;
 }
 
@@ -900,39 +1115,14 @@ async function searchStop() {
     const name = getFavName(stopId) || `Fermata ${stopId}`;
     const saved = isFav(stopId);
 
-    // Diagnostica minima se 0 risultati
+    // Info box se 0 risultati
     let infoHtml = '';
-    if (arrivals.length === 0 && feedBuf) {
-      try {
-        const r2 = new PBReader(feedBuf);
-        const sampleIds = []; let stuTotal = 0;
-        outer: while (!r2.done()) {
-          const [f2, wt2] = r2.tag();
-          if (f2 !== 2 || wt2 !== 2) { r2.skip(wt2); continue; }
-          const elen2 = r2.uint(); const ent2 = r2.sub(elen2); r2.pos += elen2;
-          while (!ent2.done()) {
-            const [ef, ewt] = ent2.tag();
-            if (ef === 5 && ewt === 2) {
-              const tulen2 = ent2.uint(); const tu2 = parseTripUpdate(ent2.sub(tulen2)); ent2.pos += tulen2;
-              for (const s2 of tu2.stus) {
-                stuTotal++;
-                if (s2.stopId && sampleIds.length < 6 && !sampleIds.includes(s2.stopId)) sampleIds.push(s2.stopId);
-              }
-              if (stuTotal > 500) break outer;
-            } else ent2.skip(ewt);
-          }
-        }
-        if (stuTotal === 0) {
-          infoHtml = `<div style="margin:10px 14px;font-size:12px;background:#fff3cd;border-left:3px solid #f0a500;padding:10px;border-radius:6px">⚠️ Feed scaricato (${feedBuf.byteLength} byte) ma 0 stop_time_update trovati.</div>`;
-        } else {
-          const similar = sampleIds.filter(id => id.startsWith(stopId.substring(0,3)));
-          infoHtml = `<div style="margin:10px 14px;font-size:12px;background:#e8f4fd;border-left:3px solid #2196F3;padding:10px;border-radius:6px">
-            ℹ️ <strong>${stuTotal}+</strong> orari, nessuno per "<strong>${esc(stopId)}</strong>".<br>
-            ${similar.length ? `Simili: <strong>${similar.join(', ')}</strong><br>` : ''}
-            Esempi: <strong>${sampleIds.join(', ')}</strong>
-          </div>`;
-        }
-      } catch(de) { /* ignora errori diagnostica */ }
+    if (arrivals.length === 0 && !muoviApiKey) {
+      infoHtml = `<div style="margin:10px 14px;font-size:12px;background:#e8f4fd;border-left:3px solid #2196F3;padding:10px;border-radius:6px;line-height:1.5">
+        ℹ️ <strong>Nessun bus con ritardo rilevato.</strong><br>
+        I bus di questa fermata sono probabilmente in orario. Il feed GTFS-RT include solo i bus con GPS attivo e ritardo.<br>
+        <strong>Configura una chiave API in <a href="#" onclick="goPage('settings');return false" style="color:var(--red)">Impostazioni</a></strong> per vedere tutti gli autobus.
+      </div>`;
     }
 
     const arrHtml = `<div class="arr-list">${renderArrivalsHtml(arrivals)}</div>`;
@@ -1034,6 +1224,43 @@ function goPage(name) {
   document.querySelectorAll('.bnav-btn').forEach(b => b.classList.remove('on'));
   document.getElementById(`pg-${name}`).classList.add('on');
   document.getElementById(`nav-${name}`).classList.add('on');
+  if (name === 'settings') initSettingsPage();
+}
+
+// ═══════════════════════════════════════════════
+// SETTINGS
+// ═══════════════════════════════════════════════
+function initSettingsPage() {
+  const inp = document.getElementById('settings-key-input');
+  const stat = document.getElementById('key-status');
+  if (muoviApiKey) {
+    inp.value = muoviApiKey;
+    stat.className = 'key-status ok';
+    stat.textContent = '✓ Chiave API configurata';
+  } else {
+    stat.className = 'key-status bad';
+    stat.textContent = 'Nessuna chiave configurata — viene usato il feed GTFS-RT (limitato)';
+  }
+}
+
+function saveApiKey() {
+  const key = document.getElementById('settings-key-input').value.trim();
+  const stat = document.getElementById('key-status');
+  if (!key) {
+    muoviApiKey = null;
+    muoviSession = null;
+    localStorage.removeItem('atac_muovi_key');
+    stat.className = 'key-status bad';
+    stat.textContent = 'Chiave rimossa';
+    toast('Chiave API rimossa');
+    return;
+  }
+  muoviApiKey = key;
+  muoviSession = null; // forza nuova autenticazione
+  localStorage.setItem('atac_muovi_key', key);
+  stat.className = 'key-status ok';
+  stat.textContent = '✓ Chiave salvata — verrà usata al prossimo aggiornamento';
+  toast('✓ Chiave API salvata');
 }
 
 // ═══════════════════════════════════════════════
@@ -1041,11 +1268,12 @@ function goPage(name) {
 // ═══════════════════════════════════════════════
 async function refreshAll() {
   feedBuf = null; feedTs = 0;
+  muoviSession = null; // forza nuova sessione muovi
   const btn = document.getElementById('refresh-all-btn');
   btn.textContent = '...';
   try {
-    await getFeed(true);
-    toast('✓ Dati aggiornati');
+    if (!muoviApiKey) await getFeed(true);
+    toast('✓ Cache svuotata');
   } catch(e) {
     toast('Errore di rete');
   } finally {
