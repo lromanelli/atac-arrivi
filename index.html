@@ -554,6 +554,29 @@ let lastWorkingProxy = null;
 // ═══════════════════════════════════════════════
 // PARSE ARRIVALS FOR STOP
 // ═══════════════════════════════════════════════
+// Raccoglie un campione di stop IDs dal feed (per debug)
+async function sampleStopIds(prefix) {
+  const root = await getProto();
+  const buf = feedBuf;
+  if (!buf) return [];
+  const FM = root.lookupType('transit_realtime.FeedMessage');
+  const msg = FM.decode(new Uint8Array(buf));
+  const ids = new Set();
+  for (const ent of (msg.entity || [])) {
+    const tu = ent.tripUpdate;
+    if (!tu) continue;
+    for (const stu of (tu.stopTimeUpdate || [])) {
+      if (stu.stopId) ids.add(stu.stopId);
+      if (ids.size > 2000) break;
+    }
+    if (ids.size > 2000) break;
+  }
+  // Filtra quelli che iniziano con il prefisso (anche parziale)
+  const p = prefix.substring(0, 3);
+  const matching = [...ids].filter(id => id.startsWith(p)).slice(0, 10);
+  return { matching, total: ids.size };
+}
+
 async function getArrivals(stopId, force) {
   const [root, buf] = await Promise.all([getProto(), getFeed(force)]);
   const FM = root.lookupType('transit_realtime.FeedMessage');
@@ -769,6 +792,16 @@ async function searchStop() {
     const name = getFavName(stopId) || `Fermata ${stopId}`;
     const saved = isFav(stopId);
 
+    let debugHtml = '';
+    if (arrivals.length === 0) {
+      const { matching, total } = await sampleStopIds(stopId);
+      debugHtml = `<div class="info-box" style="margin:12px 14px">
+        🔍 Feed caricato: <strong>${total}</strong> fermate trovate nel feed.<br>
+        Codici simili a "<strong>${esc(stopId)}</strong>":<br>
+        ${matching.length ? matching.map(id => `<code style="background:#eee;padding:1px 4px;border-radius:3px;margin:2px;display:inline-block">${esc(id)}</code>`).join(' ') : '<em>nessuno — prova un codice diverso</em>'}
+      </div>`;
+    }
+
     const arrHtml = `<div class="arr-list">${renderArrivalsHtml(arrivals)}</div>`;
 
     out.innerHTML = `
@@ -788,6 +821,7 @@ async function searchStop() {
           </button>
         </div>
       </div>
+      ${debugHtml}
       ${arrHtml}
     </div>`;
 
