@@ -344,6 +344,14 @@ html, body {
   background: #f8f8f8; border-top: 1px solid var(--border);
   min-height: 26px; flex-shrink: 0;
 }
+.toggle-mode-btn {
+  display: block; width: calc(100% - 28px); margin: 8px 14px 4px;
+  padding: 10px; border: 1.5px dashed var(--border);
+  background: transparent; border-radius: 10px;
+  font-size: 13px; color: var(--muted); cursor: pointer;
+  font-family: inherit; text-align: center;
+}
+.toggle-mode-btn:active { background: var(--bg); }
 .btn-map {
   flex: 1; padding: 12px; border: 2px solid var(--gps-color);
   background: var(--gps-bg); border-radius: 10px;
@@ -1057,6 +1065,8 @@ async function getCombinedArrivals(stopId, force) {
 // ═══════════════════════════════════════════════
 // DISPATCHER
 // ═══════════════════════════════════════════════
+let gpsOnlyMode = localStorage.getItem('atac_gps_only') !== 'false'; // default: true
+
 async function getArrivals(stopId, force) {
   if (muoviApiKey) {
     try {
@@ -1065,6 +1075,13 @@ async function getArrivals(stopId, force) {
       console.warn('muovi.roma.it fallback:', e.message);
       if (e.message.includes('valida') || e.message.includes('scaduta')) muoviSession = null;
     }
+  }
+  if (gpsOnlyMode) {
+    try {
+      const rt = await getGtfsArrivals(stopId, force);
+      // If GTFS-RT has data, use it; otherwise fall back to combined
+      if (rt.length > 0) return rt;
+    } catch(e) { /* fall through */ }
   }
   return await getCombinedArrivals(stopId, force);
 }
@@ -1082,10 +1099,10 @@ function renderArrivalsHtml(arrivals) {
       : '🔶 GTFS-RT · solo bus con ritardo attivo';
 
   if (!arrivals.length) {
-    const hint = !muoviApiKey
-      ? `<p style="font-size:12px;margin-top:10px;color:var(--muted)">Per vedere tutti gli autobus configura la <strong>chiave API</strong> in Impostazioni.</p>`
+    const hint = gpsOnlyMode
+      ? `<button class="toggle-mode-btn" style="margin-top:12px" onclick="toggleGpsMode()">📅 Mostra anche orari programmati</button>`
       : '';
-    return `<div class="no-arr">🚌 Nessun autobus nei prossimi 90 minuti${hint}</div>`;
+    return `<div class="no-arr">🚌 Nessun bus in tempo reale ora${hint}</div>`;
   }
 
   let html = '';
@@ -1116,7 +1133,9 @@ function renderArrivalsHtml(arrivals) {
   }
 
   const upd = new Date().toLocaleTimeString('it-IT', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  const toggleLabel = gpsOnlyMode ? '📅 Mostra anche orari programmati' : '📡 Solo bus in tempo reale';
   html += `<div class="last-upd">Aggiornato ${upd} · ${srcLabel}</div>`;
+  html += `<button class="toggle-mode-btn" onclick="toggleGpsMode()">${toggleLabel}</button>`;
   return html;
 }
 
@@ -1327,6 +1346,13 @@ function removeFav(id) {
   saveFavs(); renderFavs(); toast('Fermata rimossa');
 }
 
+function toggleGpsMode() {
+  gpsOnlyMode = !gpsOnlyMode;
+  localStorage.setItem('atac_gps_only', gpsOnlyMode);
+  if (sheetStopId) refreshSheet();
+  else if (document.getElementById('stop-input').value.trim()) searchStop();
+}
+
 // ═══════════════════════════════════════════════
 // MAP
 // ═══════════════════════════════════════════════
@@ -1406,7 +1432,7 @@ async function refreshMapMarkers() {
     const upd = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     document.getElementById('map-status').textContent = busCount > 0
       ? `${busCount} bus tracciati · aggiornato ${upd}`
-      : `Nessun bus GPS disponibile ora · ${upd}`;
+      : `Nessun bus GPS · feed: ${positions.size} veicoli, fermata: ${stopTripIds.size} trip · ${upd}`;
 
     leafletMap.invalidateSize();
   } catch(e) {
