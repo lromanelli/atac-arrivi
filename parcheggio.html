@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1a73e8">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="La Mia Auto">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<title>Dov'è la mia auto</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f0f4ff;
+  height: 100%;
+  overflow: hidden;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+/* HEADER */
+.hdr {
+  background: #1a73e8;
+  color: #fff;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,.2);
+}
+.hdr-icon { font-size: 28px; }
+.hdr h1 { font-size: 18px; font-weight: 700; }
+.hdr p { font-size: 12px; opacity: .8; margin-top: 1px; }
+
+/* MAIN */
+.main { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+
+/* SAVE BUTTON */
+.save-btn {
+  width: 100%;
+  padding: 20px;
+  background: #1a73e8;
+  color: #fff;
+  border: none;
+  border-radius: 16px;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-shadow: 0 4px 14px rgba(26,115,232,.4);
+  transition: transform .1s, box-shadow .1s;
+  flex-shrink: 0;
+}
+.save-btn:active { transform: scale(.97); box-shadow: 0 2px 6px rgba(26,115,232,.3); }
+.save-btn:disabled { background: #93b8f7; box-shadow: none; cursor: not-allowed; }
+
+/* STATUS */
+.status {
+  text-align: center;
+  font-size: 13px;
+  color: #666;
+  min-height: 20px;
+}
+.status.error { color: #d32f2f; }
+.status.ok { color: #2e7d32; }
+
+/* CARD */
+.card {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 2px 10px rgba(0,0,0,.08);
+  overflow: hidden;
+}
+.card-hdr {
+  padding: 14px 16px 10px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.card-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: 4px;
+}
+.card-addr {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111;
+  line-height: 1.4;
+  border: none;
+  background: none;
+  padding: 0;
+  width: 100%;
+  font-family: inherit;
+  cursor: text;
+}
+.card-addr:focus {
+  outline: none;
+  border-bottom: 2px solid #1a73e8;
+}
+.card-addr-hint {
+  font-size: 11px;
+  color: #aaa;
+  margin-top: 2px;
+}
+.card-time {
+  font-size: 12px;
+  color: #888;
+  margin-top: 4px;
+}
+.clear-btn {
+  background: none;
+  border: none;
+  color: #bbb;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.clear-btn:hover { color: #d32f2f; }
+
+/* MAP */
+#map { height: 240px; }
+
+/* NAV BUTTON */
+.nav-btn {
+  width: calc(100% - 32px);
+  margin: 0 16px 16px;
+  padding: 14px;
+  background: #2e7d32;
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 3px 10px rgba(46,125,50,.35);
+}
+.nav-btn:active { transform: scale(.97); }
+
+/* EMPTY STATE */
+.empty {
+  text-align: center;
+  padding: 32px 20px;
+  color: #888;
+}
+.empty .big-icon { font-size: 56px; margin-bottom: 12px; }
+.empty h2 { font-size: 16px; color: #444; margin-bottom: 6px; }
+.empty p { font-size: 13px; line-height: 1.6; }
+
+/* SPINNER */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  width: 20px; height: 20px;
+  border: 3px solid rgba(255,255,255,.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+  flex-shrink: 0;
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="hdr">
+    <div class="hdr-icon">🚗</div>
+    <div>
+      <h1>Dov'è la mia auto</h1>
+      <p>Salva e ritrova la tua auto</p>
+    </div>
+  </div>
+
+  <div class="main">
+    <button class="save-btn" id="save-btn" onclick="saveParking()">
+      📍 Salva posizione auto
+    </button>
+    <div class="status" id="status"></div>
+
+    <div id="parking-card" style="display:none">
+      <div class="card">
+        <div class="card-hdr">
+          <div>
+            <div class="card-label">Auto parcheggiata qui</div>
+            <input class="card-addr" id="card-addr" type="text" value="—" oninput="saveAddr(this.value)">
+            <div class="card-addr-hint">✏️ Tocca per correggere</div>
+            <div class="card-time" id="card-time"></div>
+          </div>
+          <button class="clear-btn" onclick="clearParking()" title="Cancella">✕</button>
+        </div>
+        <div id="map"></div>
+      </div>
+      <button class="nav-btn" onclick="navigateToParking()">
+        🧭 Portami all'auto
+      </button>
+    </div>
+
+    <div id="empty-state" class="empty">
+      <div class="big-icon">🅿️</div>
+      <h2>Nessuna posizione salvata</h2>
+      <p>Premi il bottone blu quando parcheggi l'auto. Salveremo la posizione GPS e l'indirizzo.</p>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+let leafletMap = null;
+let marker = null;
+
+const STORAGE_KEY = 'mia_auto_v1';
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function setStatus(msg, type) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'status' + (type ? ' ' + type : '');
+}
+
+async function reverseGeocode(lat, lon) {
+  // 1. Prova Google Maps Geocoding (gratis per uso personale)
+  try {
+    const res = await fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lon}&language=it&result_type=street_address|route&key=`
+    );
+    // Se nessuna key configurata, salta
+  } catch(e) {}
+
+  // 2. Prova Photon (Komoot) - OpenStreetMap, restituisce via e numero
+  try {
+    const res = await fetch(
+      `https://photon.komoot.io/reverse?lon=${lon}&lat=${lat}&lang=it`
+    );
+    const data = await res.json();
+    const p = data?.features?.[0]?.properties;
+    if (p) {
+      const road = p.street || p.name || '';
+      const num = p.housenumber ? ` ${p.housenumber}` : '';
+      const city = p.city || p.town || p.village || '';
+      if (road) return `${road}${num}${city ? ', ' + city : ''}`;
+    }
+  } catch(e) {}
+
+  // 3. Fallback Nominatim
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=it`,
+      { headers: { 'User-Agent': 'MiaAutoApp/1.0' } }
+    );
+    const data = await res.json();
+    const a = data.address || {};
+    const road = a.road || a.pedestrian || a.footway || '';
+    const num = a.house_number ? ` ${a.house_number}` : '';
+    const city = a.city || a.town || a.village || a.municipality || '';
+    if (road) return `${road}${num}${city ? ', ' + city : ''}`;
+    return data.display_name?.split(',').slice(0,2).join(',') || `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+  } catch(e) {}
+
+  return `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+}
+
+// Attende la migliore lettura GPS (precisione < 30m o timeout 20s)
+function getAccuratePosition() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) { reject({ code: 0 }); return; }
+
+    let best = null;
+    let watchId = null;
+
+    const done = (pos) => {
+      clearTimeout(timer);
+      navigator.geolocation.clearWatch(watchId);
+      resolve(pos);
+    };
+
+    const timer = setTimeout(() => {
+      navigator.geolocation.clearWatch(watchId);
+      if (best) resolve(best);
+      else reject({ code: 3 });
+    }, 20000);
+
+    watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        best = pos;
+        const acc = Math.round(pos.coords.accuracy);
+        setStatus(`📡 GPS: ±${acc}m${acc > 30 ? ' — aspetto segnale migliore…' : ''}`);
+        if (acc <= 30) done(pos);
+      },
+      (err) => { clearTimeout(timer); reject(err); },
+      { enableHighAccuracy: true, maximumAge: 0 }
+    );
+  });
+}
+
+async function saveParking() {
+  const btn = document.getElementById('save-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner"></div> Ricerca GPS...';
+  setStatus('📡 GPS: in attesa…');
+
+  try {
+    const pos = await getAccuratePosition();
+    const lat = pos.coords.latitude;
+    const lon = pos.coords.longitude;
+    const acc = Math.round(pos.coords.accuracy);
+
+    btn.innerHTML = '<div class="spinner"></div> Trovando indirizzo...';
+    setStatus('');
+    const addr = await reverseGeocode(lat, lon);
+
+    const parking = { lat, lon, addr, acc, ts: Date.now() };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(parking));
+
+    btn.disabled = false;
+    btn.innerHTML = '📍 Salva posizione auto';
+    setStatus(`✓ Posizione salvata (±${acc}m)`, 'ok');
+    showParking(parking);
+  } catch(err) {
+    btn.disabled = false;
+    btn.innerHTML = '📍 Salva posizione auto';
+    const msgs = {
+      1: 'Permesso GPS negato. Abilita la posizione nelle impostazioni.',
+      2: 'Segnale GPS non disponibile. Prova all\'aperto.',
+      3: 'GPS troppo impreciso. Riprova all\'aperto.'
+    };
+    setStatus(msgs[err.code] || 'Errore GPS.', 'error');
+  }
+}
+
+function saveAddr(val) {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return;
+  const p = JSON.parse(raw);
+  p.addr = val;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+}
+
+function showParking(parking) {
+  document.getElementById('empty-state').style.display = 'none';
+  const card = document.getElementById('parking-card');
+  card.style.display = 'block';
+
+  document.getElementById('card-addr').value = parking.addr;
+
+  const d = new Date(parking.ts);
+  const dateStr = d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' });
+  const timeStr = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  document.getElementById('card-time').textContent = `Salvata ${dateStr} alle ${timeStr} · ±${parking.acc}m`;
+
+  // Init map
+  setTimeout(() => {
+    if (!leafletMap) {
+      leafletMap = L.map('map', { zoomControl: false, attributionControl: false }).setView([parking.lat, parking.lon], 17);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(leafletMap);
+    } else {
+      leafletMap.setView([parking.lat, parking.lon], 17);
+      if (marker) leafletMap.removeLayer(marker);
+    }
+
+    const carSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 32" width="64" height="32">
+      <!-- ombra -->
+      <ellipse cx="32" cy="30" rx="26" ry="3" fill="rgba(0,0,0,0.18)"/>
+      <!-- carrozzeria bassa -->
+      <rect x="4" y="17" width="56" height="11" rx="4" fill="#e8e8e8" stroke="#bbb" stroke-width="1"/>
+      <!-- tetto hatchback (profilo 208) -->
+      <path d="M14 17 Q18 6 28 5 L42 5 Q52 5 54 17 Z" fill="white" stroke="#bbb" stroke-width="1"/>
+      <!-- finestrino sx -->
+      <path d="M16 16 Q19 9 27 8 L27 16 Z" fill="#a8d4f5" opacity="0.8"/>
+      <!-- finestrino dx -->
+      <path d="M29 8 L39 8 Q45 8 47 16 L29 16 Z" fill="#a8d4f5" opacity="0.8"/>
+      <!-- montante centrale -->
+      <rect x="27.5" y="8" width="1.5" height="8" fill="#bbb"/>
+      <!-- ruota sx -->
+      <circle cx="15" cy="27" r="5" fill="#444"/>
+      <circle cx="15" cy="27" r="2.5" fill="#ccc"/>
+      <!-- ruota dx -->
+      <circle cx="49" cy="27" r="5" fill="#444"/>
+      <circle cx="49" cy="27" r="2.5" fill="#ccc"/>
+      <!-- fanale ant -->
+      <rect x="57" y="19" width="3" height="4" rx="1" fill="#fffbe6" stroke="#e0c000" stroke-width="0.5"/>
+      <!-- fanale post -->
+      <rect x="4" y="19" width="3" height="4" rx="1" fill="#ffcccc" stroke="#cc0000" stroke-width="0.5"/>
+    </svg>`;
+    const carIcon = L.divIcon({
+      html: `<div style="filter:drop-shadow(0 2px 5px rgba(0,0,0,.35))">${carSvg}</div>`,
+      className: '',
+      iconSize: [64, 32],
+      iconAnchor: [32, 30]
+    });
+    marker = L.marker([parking.lat, parking.lon], { icon: carIcon }).addTo(leafletMap);
+    leafletMap.invalidateSize();
+  }, 80);
+}
+
+function clearParking() {
+  if (!confirm('Sei sicura di voler cancellare la posizione salvata?')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  document.getElementById('parking-card').style.display = 'none';
+  document.getElementById('empty-state').style.display = 'block';
+  setStatus('');
+  if (marker && leafletMap) { leafletMap.removeLayer(marker); marker = null; }
+}
+
+function navigateToParking() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return;
+  const p = JSON.parse(raw);
+  // iOS: Apple Maps; Android: Google Maps
+  const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const url = isIos
+    ? `maps://maps.apple.com/?daddr=${p.lat},${p.lon}`
+    : `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lon}&travelmode=walking`;
+  window.open(url, '_blank');
+}
+
+// Load on startup
+(function() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (raw) {
+    try { showParking(JSON.parse(raw)); } catch(e) { localStorage.removeItem(STORAGE_KEY); }
+  }
+})();
+</script>
+</body>
+</html>
